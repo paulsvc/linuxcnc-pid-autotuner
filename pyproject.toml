@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lcnc-pid-tuner"
+version = "1.0.0"
+description = "LinuxCNC PID & Feedforward Auto-Tuner for Velocity-Mode Servos with Linear Scale Feedback"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.21.0",
+    "matplotlib>=3.5.0",
+]
+
+[project.scripts]
+lcnc-pid-tuner = "lcnc_pid_tuner.gui:launch_gui"
+
+[tool.setuptools.packages.find]
+where = ["src"]
