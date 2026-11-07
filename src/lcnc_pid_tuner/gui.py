@@ -18,6 +18,12 @@ from matplotlib.figure import Figure
 
 from .gcode_gen import generate_tuning_gcode
 from .hal_backend import AXIS_TO_JOINT, LinuxCNCBackend
+from .i18n import (
+    SUPPORTED_LANGUAGES,
+    tr_text,
+    translate_rationale_line,
+    translate_stage_name,
+)
 from .kpi_analyzer import analyze_trace
 from .models import (
     KPIResult,
@@ -25,34 +31,47 @@ from .models import (
     MotionPhase,
     PIDParams,
     TuningAttempt,
-    TuningSuggestion,
 )
 from .optimizer import PIDAutoOptimizer
 
 
-PARAM_FIELDS = [
-    ("P", "Pgain (Stiffness)"),
-    ("I", "Igain (Steady-State)"),
-    ("D", "Dgain (Damping)"),
-    ("FF0", "FF0 (Position FF)"),
-    ("FF1", "FF1 (Velocity FF)"),
-    ("FF2", "FF2 (Accel FF)"),
-    ("deadband", "Deadband (mm)"),
-    ("bias", "Bias (Offset)"),
-    ("maxerrorI", "MaxErrorI (mm)"),
+PARAM_KEYS = [
+    ("P", "param_P"),
+    ("I", "param_I"),
+    ("D", "param_D"),
+    ("FF0", "param_FF0"),
+    ("FF1", "param_FF1"),
+    ("FF2", "param_FF2"),
+    ("deadband", "param_deadband"),
+    ("bias", "param_bias"),
+    ("maxerrorI", "param_maxerrorI"),
+]
+
+KPI_KEYS = [
+    ("ferror_rms", "kpi_ferror_rms"),
+    ("ferror_max", "kpi_ferror_max"),
+    ("cruise_error_mean", "kpi_cruise_error_mean"),
+    ("accel_peak_error", "kpi_accel_peak_error"),
+    ("overshoot_mm", "kpi_overshoot_mm"),
+    ("settling_time_ms", "kpi_settling_time_ms"),
+    ("standstill_hunting_p2p", "kpi_standstill_hunting_p2p"),
+    ("output_chatter_rms", "kpi_output_chatter_rms"),
+    ("cruise_asymmetry", "kpi_cruise_asymmetry"),
+    ("overall_score", "kpi_overall_score"),
 ]
 
 
 class PIDAutoTunerGUI:
     """Main application window for LinuxCNC PID + Feedforward Auto-Tuner."""
 
-    def __init__(self, root: tk.Tk, force_sim: bool = False) -> None:
+    def __init__(
+        self, root: tk.Tk, force_sim: bool = False, default_lang: str = "fr"
+    ) -> None:
         self.root = root
-        self.root.title(
-            "LinuxCNC PID & Feedforward Auto-Tuner (Velocity Servo + Linear Scale)"
-        )
-        self.root.geometry("1460x900")
-        self.root.minsize(1200, 760)
+        self.lang = default_lang if default_lang in SUPPORTED_LANGUAGES else "en"
+        self.root.title(self._t("app_title"))
+        self.root.geometry("1480x910")
+        self.root.minsize(1220, 760)
 
         self.backend = LinuxCNCBackend(force_sim=force_sim)
         self.optimizer = PIDAutoOptimizer()
@@ -63,6 +82,8 @@ class PIDAutoTunerGUI:
         self.comparison_attempt: Optional[TuningAttempt] = None
 
         # Tk variables
+        self.lang_var = tk.StringVar(value=self.lang)
+        self.lang_display_var = tk.StringVar(value=SUPPORTED_LANGUAGES[self.lang])
         self.axis_var = tk.StringVar(value="X")
         self.sim_mode_var = tk.BooleanVar(value=not self.backend.is_live_linuxcnc)
         self.start_pos_var = tk.DoubleVar(value=0.0)
@@ -70,23 +91,57 @@ class PIDAutoTunerGUI:
         self.feed_var = tk.DoubleVar(value=1500.0)
         self.accel_var = tk.DoubleVar(value=250.0)
         self.dwell_var = tk.DoubleVar(value=0.35)
-        self.status_var = tk.StringVar(
-            value="Ready. Select an Axis, adjust Start Pos / Travel (mm) to stay within limits, and click '1. Run Test'."
-        )
+        self.status_var = tk.StringVar(value="")
 
         self.current_param_vars: Dict[str, tk.StringVar] = {}
         self.suggested_param_vars: Dict[str, tk.StringVar] = {}
         self.delta_param_vars: Dict[str, tk.StringVar] = {}
-        for key, _ in PARAM_FIELDS:
+        for key, _ in PARAM_KEYS:
             self.current_param_vars[key] = tk.StringVar(value="0.0")
             self.suggested_param_vars[key] = tk.StringVar(value="—")
             self.delta_param_vars[key] = tk.StringVar(value="")
 
         self.kpi_vars: Dict[str, tk.StringVar] = {}
 
+        # Dynamic UI label variables for instant language switching
+        self.ui_str: Dict[str, tk.StringVar] = {}
+        for tr_key in [
+            "axis_label",
+            "start_label",
+            "btn_read_pos",
+            "travel_label",
+            "btn_flip",
+            "feed_label",
+            "accel_label",
+            "dwell_label",
+            "btn_run_test",
+            "btn_apply_retest",
+            "btn_autotune",
+            "btn_stop",
+            "chk_sim_mode",
+            "lang_label",
+            "hdr_param",
+            "hdr_active",
+            "hdr_suggested",
+            "hdr_delta",
+            "btn_copy_suggested",
+            "btn_load_ini",
+            "btn_save_ini",
+            "btn_overlay",
+            "btn_restore",
+            "btn_load_best",
+            "btn_clear_history",
+            "btn_export_history",
+        ] + [tk_k for _, tk_k in PARAM_KEYS] + [tk_k for _, tk_k in KPI_KEYS]:
+            self.ui_str[tr_key] = tk.StringVar(value=self._t(tr_key))
+
         self._configure_styles()
+        self._build_menubar()
         self._build_layout()
         self._on_axis_changed()
+
+    def _t(self, key: str, **kwargs: object) -> str:
+        return tr_text(self.lang, key, **kwargs)
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self.root)
@@ -103,167 +158,215 @@ class PIDAutoTunerGUI:
             font=("Segoe UI", 10, "bold"),
         )
         style.configure("TLabel", background="#f4f6f9", foreground="#1e293b")
-        style.configure(
-            "Primary.TButton",
-            font=("Segoe UI", 10, "bold"),
-            padding=(10, 6),
-        )
-        style.configure(
-            "Accent.TButton",
-            font=("Segoe UI", 10, "bold"),
-            padding=(10, 6),
-        )
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
         style.configure("Treeview", rowheight=24, font=("Segoe UI", 9))
 
+    def _build_menubar(self) -> None:
+        """Create top application menu bar with File and Language menus."""
+        self.menubar = tk.Menu(self.root)
+
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.file_menu.add_command(
+            label=self._t("menu_load_ini"), command=self.load_from_ini_dialog
+        )
+        self.file_menu.add_command(
+            label=self._t("menu_save_ini"), command=self.save_to_ini_dialog
+        )
+        self.file_menu.add_command(
+            label=self._t("menu_export_history"), command=self.export_history_dialog
+        )
+        self.file_menu.add_separator()
+        self.file_menu.add_command(
+            label=self._t("menu_exit"), command=self.root.quit
+        )
+        self.menubar.add_cascade(label=self._t("menu_file"), menu=self.file_menu)
+
+        self.lang_menu = tk.Menu(self.menubar, tearoff=0)
+        for code, name in SUPPORTED_LANGUAGES.items():
+            self.lang_menu.add_radiobutton(
+                label=f"{name} ({code.upper()})",
+                variable=self.lang_var,
+                value=code,
+                command=lambda c=code: self.set_language(c),
+            )
+        self.menubar.add_cascade(
+            label=self._t("menu_language"), menu=self.lang_menu
+        )
+        self.root.config(menu=self.menubar)
+
     def _build_layout(self) -> None:
         # 1. Top Control Toolbar
-        top_frame = ttk.LabelFrame(
-            self.root, text="Step 1: Axis, Motion Profile & Test Execution", padding=8
+        self.top_frame = ttk.LabelFrame(
+            self.root, text=self._t("step1_frame"), padding=8
         )
-        top_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 4))
+        self.top_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 4))
 
         # Axis selector
-        ttk.Label(top_frame, text="Axis:", font=("Segoe UI", 10, "bold")).pack(
-            side=tk.LEFT, padx=(4, 4)
-        )
+        ttk.Label(
+            self.top_frame,
+            textvariable=self.ui_str["axis_label"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(2, 3))
         axis_cb = ttk.Combobox(
-            top_frame,
+            self.top_frame,
             textvariable=self.axis_var,
             values=["X", "Y", "Z", "A"],
-            width=4,
+            width=3,
             state="readonly",
             font=("Segoe UI", 10, "bold"),
         )
-        axis_cb.pack(side=tk.LEFT, padx=(0, 8))
+        axis_cb.pack(side=tk.LEFT, padx=(0, 6))
         axis_cb.bind("<<ComboboxSelected>>", lambda _e: self._on_axis_changed())
 
         # Start position + Read Current Position button
-        ttk.Label(top_frame, text="Start (mm):").pack(side=tk.LEFT, padx=(2, 2))
-        start_entry = ttk.Entry(top_frame, textvariable=self.start_pos_var, width=6)
+        ttk.Label(self.top_frame, textvariable=self.ui_str["start_label"]).pack(
+            side=tk.LEFT, padx=(2, 2)
+        )
+        start_entry = ttk.Entry(
+            self.top_frame, textvariable=self.start_pos_var, width=6
+        )
         start_entry.pack(side=tk.LEFT, padx=(0, 2))
         start_entry.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
 
         ttk.Button(
-            top_frame,
-            text="📍 Read Pos",
+            self.top_frame,
+            textvariable=self.ui_str["btn_read_pos"],
             width=9,
             command=self.read_current_axis_pos,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         # Travel distance + Flip Direction button
-        ttk.Label(top_frame, text="Travel (mm):").pack(side=tk.LEFT, padx=(2, 2))
-        travel_entry = ttk.Entry(top_frame, textvariable=self.travel_var, width=6)
+        ttk.Label(self.top_frame, textvariable=self.ui_str["travel_label"]).pack(
+            side=tk.LEFT, padx=(2, 2)
+        )
+        travel_entry = ttk.Entry(
+            self.top_frame, textvariable=self.travel_var, width=6
+        )
         travel_entry.pack(side=tk.LEFT, padx=(0, 2))
         travel_entry.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
 
         ttk.Button(
-            top_frame,
-            text="↔ Flip",
-            width=6,
+            self.top_frame,
+            textvariable=self.ui_str["btn_flip"],
+            width=8,
             command=self.flip_travel_direction,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         # Feed, Accel, Dwell
-        for label_txt, var, width in [
-            ("Feed (mm/min):", self.feed_var, 6),
-            ("Accel (mm/s²):", self.accel_var, 5),
-            ("Dwell (s):", self.dwell_var, 4),
+        for str_key, var, width in [
+            ("feed_label", self.feed_var, 6),
+            ("accel_label", self.accel_var, 5),
+            ("dwell_label", self.dwell_var, 4),
         ]:
-            ttk.Label(top_frame, text=label_txt).pack(side=tk.LEFT, padx=(2, 2))
-            ent = ttk.Entry(top_frame, textvariable=var, width=width)
-            ent.pack(side=tk.LEFT, padx=(0, 6))
+            ttk.Label(self.top_frame, textvariable=self.ui_str[str_key]).pack(
+                side=tk.LEFT, padx=(2, 2)
+            )
+            ent = ttk.Entry(self.top_frame, textvariable=var, width=width)
+            ent.pack(side=tk.LEFT, padx=(0, 5))
             ent.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
 
-        ttk.Separator(top_frame, orient=tk.VERTICAL).pack(
-            side=tk.LEFT, fill=tk.Y, padx=8
+        ttk.Separator(self.top_frame, orient=tk.VERTICAL).pack(
+            side=tk.LEFT, fill=tk.Y, padx=6
         )
 
         # Primary Workflow Buttons
-        btn_run = tk.Button(
-            top_frame,
-            text="▶ 1. Run Test (G-Code + Record)",
+        self.btn_run = tk.Button(
+            self.top_frame,
+            textvariable=self.ui_str["btn_run_test"],
             bg="#2563eb",
             fg="white",
             activebackground="#1d4ed8",
             activeforeground="white",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
             pady=4,
             relief=tk.FLAT,
             command=self.run_single_test,
         )
-        btn_run.pack(side=tk.LEFT, padx=4)
+        self.btn_run.pack(side=tk.LEFT, padx=3)
 
-        btn_apply_run = tk.Button(
-            top_frame,
-            text="⚡ 2. Apply Suggested & Re-Test",
+        self.btn_apply_run = tk.Button(
+            self.top_frame,
+            textvariable=self.ui_str["btn_apply_retest"],
             bg="#059669",
             fg="white",
             activebackground="#047857",
             activeforeground="white",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
             pady=4,
             relief=tk.FLAT,
             command=self.apply_suggested_and_retest,
         )
-        btn_apply_run.pack(side=tk.LEFT, padx=4)
+        self.btn_apply_run.pack(side=tk.LEFT, padx=3)
 
-        btn_auto = tk.Button(
-            top_frame,
-            text="🤖 Auto-Tune (5 Attempts)",
+        self.btn_auto = tk.Button(
+            self.top_frame,
+            textvariable=self.ui_str["btn_autotune"],
             bg="#7c3aed",
             fg="white",
             activebackground="#6d28d9",
             activeforeground="white",
-            font=("Segoe UI", 10, "bold"),
-            padx=10,
+            font=("Segoe UI", 9, "bold"),
+            padx=8,
             pady=4,
             relief=tk.FLAT,
             command=lambda: self.run_auto_sequence(steps=5),
         )
-        btn_auto.pack(side=tk.LEFT, padx=4)
+        self.btn_auto.pack(side=tk.LEFT, padx=3)
 
-        btn_stop = tk.Button(
-            top_frame,
-            text="🛑 STOP",
+        self.btn_stop = tk.Button(
+            self.top_frame,
+            textvariable=self.ui_str["btn_stop"],
             bg="#dc2626",
             fg="white",
             activebackground="#b91c1c",
             activeforeground="white",
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 9, "bold"),
             padx=8,
             pady=4,
             relief=tk.FLAT,
             command=self.backend.abort_motion,
         )
-        btn_stop.pack(side=tk.LEFT, padx=4)
+        self.btn_stop.pack(side=tk.LEFT, padx=3)
 
-        # Right side: Simulation toggle & INI file buttons
+        # Right side: Language selector & Simulation toggle
+        lang_cb = ttk.Combobox(
+            self.top_frame,
+            textvariable=self.lang_display_var,
+            values=list(SUPPORTED_LANGUAGES.values()),
+            width=9,
+            state="readonly",
+        )
+        lang_cb.pack(side=tk.RIGHT, padx=(2, 4))
+        lang_cb.bind("<<ComboboxSelected>>", self._on_lang_combo_selected)
+        ttk.Label(self.top_frame, textvariable=self.ui_str["lang_label"]).pack(
+            side=tk.RIGHT, padx=(4, 2)
+        )
+
         sim_chk = ttk.Checkbutton(
-            top_frame,
-            text="Simulation Mode",
+            self.top_frame,
+            textvariable=self.ui_str["chk_sim_mode"],
             variable=self.sim_mode_var,
             command=self._on_sim_mode_toggled,
         )
-        sim_chk.pack(side=tk.RIGHT, padx=6)
+        sim_chk.pack(side=tk.RIGHT, padx=4)
 
-        # 2. Main Split Area (Middle: Left Parameters/KPIs, Right Oscilloscope/Evolution Plots)
+        # 2. Main Split Area
         main_paned = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
         main_paned.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=2)
 
         upper_pane = ttk.Frame(main_paned)
-        lower_pane = ttk.LabelFrame(
+        self.lower_pane = ttk.LabelFrame(
             main_paned,
-            text="Succession of Attempts — Evolution Log (Click any row to Overlay on Scope or Restore)",
+            text=self._t("history_frame"),
             padding=6,
         )
         main_paned.add(upper_pane, weight=4)
-        main_paned.add(lower_pane, weight=2)
+        main_paned.add(self.lower_pane, weight=2)
 
         # Left column inside upper_pane: PID Parameters + KPIs + Rationale
-        left_col = ttk.Frame(upper_pane, width=450)
+        left_col = ttk.Frame(upper_pane, width=460)
         left_col.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
 
         self._build_params_panel(left_col)
@@ -276,7 +379,7 @@ class PIDAutoTunerGUI:
         self._build_plots_notebook(right_col)
 
         # Bottom pane: Attempt History Table
-        self._build_history_panel(lower_pane)
+        self._build_history_panel(self.lower_pane)
 
         # Status Bar
         status_bar = ttk.Frame(self.root, padding=(8, 3))
@@ -288,30 +391,32 @@ class PIDAutoTunerGUI:
         ).pack(side=tk.LEFT)
 
     def _build_params_panel(self, parent: ttk.Frame) -> None:
-        p_frame = ttk.LabelFrame(
+        self.p_frame = ttk.LabelFrame(
             parent,
-            text="Step 2: PID & Feedforward Values (Current vs Suggested)",
+            text=self._t("step2_frame"),
             padding=8,
         )
-        p_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
+        self.p_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
 
-        headers = ["Parameter", "Active Value", "Suggested", "Delta"]
-        for col, h in enumerate(headers):
+        header_keys = ["hdr_param", "hdr_active", "hdr_suggested", "hdr_delta"]
+        for col, h_key in enumerate(header_keys):
             ttk.Label(
-                p_frame, text=h, font=("Segoe UI", 9, "bold")
+                self.p_frame,
+                textvariable=self.ui_str[h_key],
+                font=("Segoe UI", 9, "bold"),
             ).grid(row=0, column=col, sticky="w", padx=4, pady=(0, 4))
 
-        for row_idx, (key, label) in enumerate(PARAM_FIELDS, start=1):
-            ttk.Label(p_frame, text=label).grid(
+        for row_idx, (key, tr_key) in enumerate(PARAM_KEYS, start=1):
+            ttk.Label(self.p_frame, textvariable=self.ui_str[tr_key]).grid(
                 row=row_idx, column=0, sticky="w", padx=4, pady=1
             )
             entry = ttk.Entry(
-                p_frame, textvariable=self.current_param_vars[key], width=11
+                self.p_frame, textvariable=self.current_param_vars[key], width=11
             )
             entry.grid(row=row_idx, column=1, sticky="w", padx=4, pady=1)
 
             sug_lbl = ttk.Label(
-                p_frame,
+                self.p_frame,
                 textvariable=self.suggested_param_vars[key],
                 font=("Consolas", 9, "bold"),
                 foreground="#047857",
@@ -320,7 +425,7 @@ class PIDAutoTunerGUI:
             sug_lbl.grid(row=row_idx, column=2, sticky="w", padx=4, pady=1)
 
             delta_lbl = ttk.Label(
-                p_frame,
+                self.p_frame,
                 textvariable=self.delta_param_vars[key],
                 font=("Consolas", 8),
                 foreground="#475569",
@@ -328,9 +433,9 @@ class PIDAutoTunerGUI:
             )
             delta_lbl.grid(row=row_idx, column=3, sticky="w", padx=4, pady=1)
 
-        btn_row = ttk.Frame(p_frame)
+        btn_row = ttk.Frame(self.p_frame)
         btn_row.grid(
-            row=len(PARAM_FIELDS) + 1,
+            row=len(PARAM_KEYS) + 1,
             column=0,
             columnspan=4,
             sticky="ew",
@@ -338,61 +443,50 @@ class PIDAutoTunerGUI:
         )
         ttk.Button(
             btn_row,
-            text="✓ Copy Suggested -> Active",
+            textvariable=self.ui_str["btn_copy_suggested"],
             command=self.copy_suggested_to_active,
         ).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(
             btn_row,
-            text="Load .INI",
+            textvariable=self.ui_str["btn_load_ini"],
             command=self.load_from_ini_dialog,
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
             btn_row,
-            text="💾 Save Active to .INI",
+            textvariable=self.ui_str["btn_save_ini"],
             command=self.save_to_ini_dialog,
         ).pack(side=tk.LEFT, padx=4)
 
     def _build_kpi_summary_panel(self, parent: ttk.Frame) -> None:
-        k_frame = ttk.LabelFrame(
-            parent, text="Measured Oscilloscope KPIs (Latest Attempt)", padding=8
+        self.k_frame = ttk.LabelFrame(
+            parent, text=self._t("kpi_frame"), padding=8
         )
-        k_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
+        self.k_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
 
-        kpi_items = [
-            ("ferror_rms", "RMS ferror:"),
-            ("ferror_max", "Max Peak |ferror|:"),
-            ("cruise_error_mean", "Cruise Lag (FF1):"),
-            ("accel_peak_error", "Accel Spike (FF2):"),
-            ("overshoot_mm", "Overshoot (D/P):"),
-            ("settling_time_ms", "Settling Time:"),
-            ("standstill_hunting_p2p", "Standstill Hunting:"),
-            ("output_chatter_rms", "Drive Chatter RMS:"),
-            ("cruise_asymmetry", "+/- Asymmetry (Bias):"),
-            ("overall_score", "Overall Quality Score:"),
-        ]
-
-        for idx, (k_key, k_label) in enumerate(kpi_items):
+        for idx, (k_key, tr_key) in enumerate(KPI_KEYS):
             r = idx // 2
             c = (idx % 2) * 2
             self.kpi_vars[k_key] = tk.StringVar(value="—")
-            ttk.Label(k_frame, text=k_label, font=("Segoe UI", 8)).grid(
-                row=r, column=c, sticky="w", padx=(2, 2), pady=1
-            )
             ttk.Label(
-                k_frame,
+                self.k_frame,
+                textvariable=self.ui_str[tr_key],
+                font=("Segoe UI", 8),
+            ).grid(row=r, column=c, sticky="w", padx=(2, 2), pady=1)
+            ttk.Label(
+                self.k_frame,
                 textvariable=self.kpi_vars[k_key],
                 font=("Consolas", 9, "bold"),
                 foreground="#0f172a",
             ).grid(row=r, column=c + 1, sticky="w", padx=(0, 10), pady=1)
 
     def _build_rationale_panel(self, parent: ttk.Frame) -> None:
-        r_frame = ttk.LabelFrame(
-            parent, text="Engineering Diagnosis & Tuning Recommendation", padding=6
+        self.r_frame = ttk.LabelFrame(
+            parent, text=self._t("rationale_frame"), padding=6
         )
-        r_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.r_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.rationale_text = tk.Text(
-            r_frame,
+            self.r_frame,
             height=6,
             width=46,
             wrap=tk.WORD,
@@ -403,11 +497,7 @@ class PIDAutoTunerGUI:
             bd=1,
         )
         self.rationale_text.pack(fill=tk.BOTH, expand=True)
-        self.rationale_text.insert(
-            tk.END,
-            "Click '▶ 1. Run Test (G-Code + Record)' to execute the reference move, "
-            "capture HAL oscilloscope signals, and compute optimal PID + FF parameters.",
-        )
+        self.rationale_text.insert(tk.END, self._t("rationale_welcome"))
         self.rationale_text.config(state=tk.DISABLED)
 
     def _build_plots_notebook(self, parent: ttk.Frame) -> None:
@@ -415,8 +505,8 @@ class PIDAutoTunerGUI:
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         # Tab 1: Integrated LinuxCNC Oscilloscope (Halscope view)
-        scope_tab = ttk.Frame(self.notebook)
-        self.notebook.add(scope_tab, text="📈 Integrated Oscilloscope (Halscope View)")
+        self.scope_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.scope_tab, text=self._t("tab_scope"))
 
         self.scope_fig = Figure(figsize=(8.5, 5.0), dpi=100, facecolor="#ffffff")
         self.ax_ferror = self.scope_fig.add_subplot(211)
@@ -425,32 +515,38 @@ class PIDAutoTunerGUI:
             left=0.09, right=0.92, top=0.92, bottom=0.10, hspace=0.22
         )
 
-        self.scope_canvas = FigureCanvasTkAgg(self.scope_fig, master=scope_tab)
-        self.scope_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        scope_toolbar = NavigationToolbar2Tk(self.scope_canvas, scope_tab)
+        self.scope_canvas = FigureCanvasTkAgg(
+            self.scope_fig, master=self.scope_tab
+        )
+        self.scope_canvas.get_tk_widget().pack(
+            side=tk.TOP, fill=tk.BOTH, expand=True
+        )
+        scope_toolbar = NavigationToolbar2Tk(self.scope_canvas, self.scope_tab)
         scope_toolbar.update()
 
         # Tab 2: Evolution Across Attempts (Succession of Attempts)
-        evol_tab = ttk.Frame(self.notebook)
-        self.notebook.add(
-            evol_tab, text="📊 Evolution Across Attempts (KPIs & Parameters)"
-        )
+        self.evol_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.evol_tab, text=self._t("tab_evolution"))
 
         self.evol_fig = Figure(figsize=(8.5, 5.0), dpi=100, facecolor="#ffffff")
         self.ax_evol_kpi = self.evol_fig.add_subplot(211)
-        self.ax_evol_param = self.evol_fig.add_subplot(212, sharex=self.ax_evol_kpi)
+        self.ax_evol_param = self.evol_fig.add_subplot(
+            212, sharex=self.ax_evol_kpi
+        )
         self.evol_fig.subplots_adjust(
             left=0.09, right=0.95, top=0.92, bottom=0.10, hspace=0.28
         )
 
-        self.evol_canvas = FigureCanvasTkAgg(self.evol_fig, master=evol_tab)
-        self.evol_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.evol_canvas = FigureCanvasTkAgg(self.evol_fig, master=self.evol_tab)
+        self.evol_canvas.get_tk_widget().pack(
+            side=tk.TOP, fill=tk.BOTH, expand=True
+        )
 
         # Tab 3: Generated G-Code Preview
-        gcode_tab = ttk.Frame(self.notebook, padding=8)
-        self.notebook.add(gcode_tab, text="📝 Test G-Code Program")
+        self.gcode_tab = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(self.gcode_tab, text=self._t("tab_gcode"))
         self.gcode_text = tk.Text(
-            gcode_tab, font=("Consolas", 10), bg="#0f172a", fg="#e2e8f0"
+            self.gcode_tab, font=("Consolas", 10), bg="#0f172a", fg="#e2e8f0"
         )
         self.gcode_text.pack(fill=tk.BOTH, expand=True)
 
@@ -484,31 +580,7 @@ class PIDAutoTunerGUI:
         self.history_tree = ttk.Treeview(
             tree_container, columns=columns, show="headings", selectmode="browse"
         )
-        col_specs = [
-            ("attempt", "#", 40),
-            ("time", "Time", 65),
-            ("axis", "Axis", 42),
-            ("stage", "Tuning Stage", 210),
-            ("P", "P", 62),
-            ("I", "I", 55),
-            ("D", "D", 62),
-            ("FF1", "FF1", 72),
-            ("FF2", "FF2", 72),
-            ("deadband", "Deadband", 70),
-            ("bias", "Bias", 60),
-            ("rms_um", "RMS (µm)", 72),
-            ("max_um", "Peak (µm)", 74),
-            ("cruise_um", "Cruise (µm)", 80),
-            ("accel_um", "Accel (µm)", 76),
-            ("overshoot", "Overshoot", 74),
-            ("settling_ms", "Settle (ms)", 76),
-            ("chatter", "Chatter", 64),
-            ("score", "Score", 66),
-        ]
-        for col_id, heading, width in col_specs:
-            self.history_tree.heading(col_id, text=heading)
-            anchor = "w" if col_id == "stage" else "center"
-            self.history_tree.column(col_id, width=width, anchor=anchor)
+        self._update_history_headings()
 
         y_scroll = ttk.Scrollbar(
             tree_container, orient=tk.VERTICAL, command=self.history_tree.yview
@@ -525,45 +597,133 @@ class PIDAutoTunerGUI:
 
         ttk.Button(
             hist_btns,
-            text="🔍 Overlay Selected Attempt on Oscilloscope",
+            textvariable=self.ui_str["btn_overlay"],
             command=self.overlay_selected_attempt,
         ).pack(side=tk.LEFT, padx=(0, 6))
 
         ttk.Button(
             hist_btns,
-            text="⏪ Restore Selected Attempt Parameters",
+            textvariable=self.ui_str["btn_restore"],
             command=self.restore_selected_attempt_params,
         ).pack(side=tk.LEFT, padx=6)
 
         ttk.Button(
             hist_btns,
-            text="🏆 Load Best Attempt So Far",
+            textvariable=self.ui_str["btn_load_best"],
             command=self.load_best_attempt_params,
         ).pack(side=tk.LEFT, padx=6)
 
         ttk.Button(
             hist_btns,
-            text="🗑 Clear History",
+            textvariable=self.ui_str["btn_clear_history"],
             command=self.clear_history,
         ).pack(side=tk.RIGHT, padx=4)
 
         ttk.Button(
             hist_btns,
-            text="📤 Export History (CSV / JSON)",
+            textvariable=self.ui_str["btn_export_history"],
             command=self.export_history_dialog,
         ).pack(side=tk.RIGHT, padx=6)
+
+    def _update_history_headings(self) -> None:
+        col_specs = [
+            ("attempt", self._t("col_attempt"), 40),
+            ("time", self._t("col_time"), 65),
+            ("axis", self._t("col_axis"), 42),
+            ("stage", self._t("col_stage"), 230),
+            ("P", "P", 58),
+            ("I", "I", 52),
+            ("D", "D", 58),
+            ("FF1", "FF1", 70),
+            ("FF2", "FF2", 70),
+            ("deadband", self._t("col_deadband"), 72),
+            ("bias", self._t("col_bias"), 58),
+            ("rms_um", self._t("col_rms_um"), 72),
+            ("max_um", self._t("col_max_um"), 74),
+            ("cruise_um", self._t("col_cruise_um"), 78),
+            ("accel_um", self._t("col_accel_um"), 74),
+            ("overshoot", self._t("col_overshoot"), 72),
+            ("settling_ms", self._t("col_settling_ms"), 74),
+            ("chatter", self._t("col_chatter"), 62),
+            ("score", self._t("col_score"), 64),
+        ]
+        for col_id, heading, width in col_specs:
+            self.history_tree.heading(col_id, text=heading)
+            anchor = "w" if col_id == "stage" else "center"
+            self.history_tree.column(col_id, width=width, anchor=anchor)
+
+    # ------------------------------------------------------------------
+    # Dynamic Language Switching
+    # ------------------------------------------------------------------
+    def _on_lang_combo_selected(self, _event: object) -> None:
+        selected_name = self.lang_display_var.get()
+        for code, name in SUPPORTED_LANGUAGES.items():
+            if name == selected_name:
+                self.set_language(code)
+                break
+
+    def set_language(self, lang_code: str) -> None:
+        """Switch UI language ('en' or 'fr') dynamically across all widgets and plots."""
+        if lang_code not in SUPPORTED_LANGUAGES:
+            return
+        self.lang = lang_code
+        self.lang_var.set(lang_code)
+        self.lang_display_var.set(SUPPORTED_LANGUAGES[lang_code])
+
+        # Update window title and menu bar
+        self.root.title(self._t("app_title"))
+        self._build_menubar()
+
+        # Update all StringVars
+        for tr_key, var in self.ui_str.items():
+            var.set(self._t(tr_key))
+
+        # Update LabelFrame titles and Notebook tabs
+        self.top_frame.config(text=self._t("step1_frame"))
+        self.p_frame.config(text=self._t("step2_frame"))
+        self.k_frame.config(text=self._t("kpi_frame"))
+        self.r_frame.config(text=self._t("rationale_frame"))
+        self.lower_pane.config(text=self._t("history_frame"))
+
+        self.notebook.tab(self.scope_tab, text=self._t("tab_scope"))
+        self.notebook.tab(self.evol_tab, text=self._t("tab_evolution"))
+        self.notebook.tab(self.gcode_tab, text=self._t("tab_gcode"))
+
+        self._update_history_headings()
+        self._refresh_history_rows_language()
+
+        if self.current_attempt:
+            self._set_suggested_params_ui(
+                self.current_attempt.params,
+                self.current_attempt.suggestion.suggested_params,
+            )
+            self._update_rationale_panel(self.current_attempt)
+            self._update_scope_plot()
+            self._update_evolution_plot()
+        else:
+            self.rationale_text.config(state=tk.NORMAL)
+            self.rationale_text.delete("1.0", tk.END)
+            self.rationale_text.insert(tk.END, self._t("rationale_welcome"))
+            self.rationale_text.config(state=tk.DISABLED)
+            self._draw_empty_plots()
+
+        axis = self.axis_var.get().upper()
+        min_lim, max_lim = self.backend.read_axis_limits(axis)
+        self.status_var.set(
+            self._t("status_ready", axis=axis, min_lim=min_lim, max_lim=max_lim)
+        )
+
+    def _refresh_history_rows_language(self) -> None:
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+        for att in self.attempts:
+            self._insert_attempt_row(att)
 
     # ------------------------------------------------------------------
     # State Helpers
     # ------------------------------------------------------------------
     def _on_sim_mode_toggled(self) -> None:
         self.backend.force_sim = bool(self.sim_mode_var.get())
-        mode_str = (
-            "Simulation Mode (Velocity Servo + Linear Scale Physics Model)"
-            if self.sim_mode_var.get()
-            else "Live LinuxCNC HAL Mode"
-        )
-        self.status_var.set(f"Switched to {mode_str}.")
 
     def _on_axis_changed(self) -> None:
         axis = self.axis_var.get().upper()
@@ -572,14 +732,13 @@ class PIDAutoTunerGUI:
         if self.backend.is_live_linuxcnc:
             cur_pos = self.backend.read_current_position(axis)
             self.start_pos_var.set(cur_pos)
-        for key, _ in PARAM_FIELDS:
+        for key, _ in PARAM_KEYS:
             self.suggested_param_vars[key].set("—")
             self.delta_param_vars[key].set("")
         self._update_gcode_preview()
         min_lim, max_lim = self.backend.read_axis_limits(axis)
         self.status_var.set(
-            f"Selected Axis {axis} (Limits: [{min_lim:.1f}, {max_lim:.1f} mm]). "
-            "Adjust Start/Travel (mm) and click '▶ 1. Run Test'."
+            self._t("status_ready", axis=axis, min_lim=min_lim, max_lim=max_lim)
         )
 
     def read_current_axis_pos(self) -> None:
@@ -588,7 +747,7 @@ class PIDAutoTunerGUI:
         pos = self.backend.read_current_position(axis)
         self.start_pos_var.set(pos)
         self._update_gcode_preview()
-        self.status_var.set(f"Set Start (mm) to current Axis {axis} position: {pos:.3f} mm.")
+        self.status_var.set(self._t("status_read_pos", axis=axis, pos=pos))
 
     def flip_travel_direction(self) -> None:
         """Invert the sign of Travel (mm) so the move goes in the opposite direction."""
@@ -598,7 +757,11 @@ class PIDAutoTunerGUI:
             self._update_gcode_preview()
             start = float(self.start_pos_var.get())
             self.status_var.set(
-                f"Flipped travel direction: {start:.1f} mm -> {start - cur_travel:.1f} mm -> {start:.1f} mm."
+                self._t(
+                    "status_flipped",
+                    start=start,
+                    end=start - cur_travel,
+                )
             )
         except ValueError:
             pass
@@ -625,7 +788,7 @@ class PIDAutoTunerGUI:
 
     def _get_active_params_from_ui(self) -> PIDParams:
         vals: Dict[str, float] = {}
-        for key, _ in PARAM_FIELDS:
+        for key, _ in PARAM_KEYS:
             try:
                 vals[key] = float(self.current_param_vars[key].get())
             except ValueError:
@@ -634,7 +797,7 @@ class PIDAutoTunerGUI:
 
     def _set_active_params_ui(self, params: PIDParams) -> None:
         p_dict = params.to_dict()
-        for key, _ in PARAM_FIELDS:
+        for key, _ in PARAM_KEYS:
             self.current_param_vars[key].set(f"{p_dict[key]:.6g}")
 
     def _set_suggested_params_ui(
@@ -642,7 +805,7 @@ class PIDAutoTunerGUI:
     ) -> None:
         a_dict = active.to_dict()
         s_dict = suggested.to_dict()
-        for key, _ in PARAM_FIELDS:
+        for key, _ in PARAM_KEYS:
             val_s = s_dict[key]
             val_a = a_dict[key]
             self.suggested_param_vars[key].set(f"{val_s:.6g}")
@@ -650,7 +813,7 @@ class PIDAutoTunerGUI:
             if abs(diff) > 1e-7:
                 self.delta_param_vars[key].set(f"({diff:+.4g})")
             else:
-                self.delta_param_vars[key].set("(unchanged)")
+                self.delta_param_vars[key].set(self._t("unchanged"))
 
     def _update_gcode_preview(self) -> None:
         cfg = self._get_motion_config()
@@ -673,8 +836,10 @@ class PIDAutoTunerGUI:
         )
         if not is_safe:
             if safe_travel != 0.0 and messagebox.askyesno(
-                "Soft Limit Protection",
-                f"{limit_msg}\n\nAutomatically adjust Travel to {safe_travel:+.1f} mm and continue?",
+                self._t("dlg_soft_limit_title"),
+                self._t(
+                    "dlg_soft_limit_ask", msg=limit_msg, safe_travel=safe_travel
+                ),
             ):
                 self.travel_var.set(safe_travel)
                 cfg = self._get_motion_config()
@@ -686,16 +851,14 @@ class PIDAutoTunerGUI:
         self._update_gcode_preview()
         gcode_str = generate_tuning_gcode(cfg)
 
-        self.status_var.set(
-            f"Running G-code test on Axis {cfg.axis_letter} and recording HAL signals..."
-        )
+        self.status_var.set(self._t("status_running", axis=cfg.axis_letter))
         self.root.update_idletasks()
 
         try:
             trace = self.backend.run_test_and_record(cfg, active_params)
         except Exception as exc:
             messagebox.showerror("LinuxCNC Execution Error", str(exc))
-            self.status_var.set(f"Error during test: {exc}")
+            self.status_var.set(f"Error: {exc}")
             return None
 
         kpis = analyze_trace(trace, active_params)
@@ -716,16 +879,12 @@ class PIDAutoTunerGUI:
             gcode_used=gcode_str,
         )
 
-        # Automatically set previous attempt on the same axis as overlay comparison if none selected
-        if axis_history and self.comparison_attempt is None:
-            self.comparison_attempt = axis_history[-1]
-        elif len(axis_history) >= 1:
+        if len(axis_history) >= 1:
             self.comparison_attempt = axis_history[-1]
 
         self.attempts.append(attempt)
         self.current_attempt = attempt
 
-        # Update UI panels
         self._set_suggested_params_ui(active_params, suggestion.suggested_params)
         self._update_kpi_panel(kpis)
         self._update_rationale_panel(attempt)
@@ -734,9 +893,13 @@ class PIDAutoTunerGUI:
         self._update_evolution_plot()
 
         self.status_var.set(
-            f"Attempt #{attempt_num} complete — RMS ferror: {kpis.ferror_rms*1000:.1f} µm | "
-            f"Peak: {kpis.ferror_max*1000:.1f} µm | Score: {kpis.overall_score:.1f}. "
-            "Click '⚡ 2. Apply Suggested & Re-Test' to continue."
+            self._t(
+                "status_attempt_done",
+                num=attempt_num,
+                rms=kpis.ferror_rms * 1000.0,
+                peak=kpis.ferror_max * 1000.0,
+                score=kpis.overall_score,
+            )
         )
         return attempt
 
@@ -744,8 +907,8 @@ class PIDAutoTunerGUI:
         """Copy the suggested PID/FF values into the active input fields and apply to HAL."""
         if not self.current_attempt:
             messagebox.showinfo(
-                "No Suggestion Yet",
-                "Please click '▶ 1. Run Test (G-Code + Record)' first to generate suggested values.",
+                self._t("dlg_no_suggestion_title"),
+                self._t("dlg_no_suggestion_msg"),
             )
             return False
 
@@ -753,7 +916,7 @@ class PIDAutoTunerGUI:
         self._set_active_params_ui(suggested)
         axis = self.axis_var.get().upper()
         _, msg = self.backend.write_pid_params(axis, suggested)
-        self.status_var.set(f"Applied suggested parameters to Active ({msg}).")
+        self.status_var.set(msg)
         return True
 
     def apply_suggested_and_retest(self) -> None:
@@ -804,22 +967,33 @@ class PIDAutoTunerGUI:
         self.rationale_text.config(state=tk.NORMAL)
         self.rationale_text.delete("1.0", tk.END)
 
-        lines = [f"Attempt #{attempt.attempt_id} — {sug.stage_name}\n"]
+        stage_loc = translate_stage_name(sug.stage_name, self.lang)
+        prefix = "Essai" if self.lang == "fr" else "Attempt"
+        lines = [f"{prefix} #{attempt.attempt_id} — {stage_loc}\n"]
         if sug.warnings:
             for w in sug.warnings:
-                lines.append(f"⚠ WARNING: {w}\n")
+                lines.append(f"⚠ {translate_rationale_line(w, self.lang)}\n")
         for item in sug.rationale:
-            lines.append(f"• {item}\n")
+            lines.append(f"• {translate_rationale_line(item, self.lang)}\n")
 
-        if self.comparison_attempt and self.comparison_attempt.attempt_id != attempt.attempt_id:
+        if (
+            self.comparison_attempt
+            and self.comparison_attempt.attempt_id != attempt.attempt_id
+        ):
             prev = self.comparison_attempt
             rms_prev = prev.kpis.ferror_rms * 1000.0
             rms_now = attempt.kpis.ferror_rms * 1000.0
             if rms_prev > 1e-6:
                 impr = ((rms_prev - rms_now) / rms_prev) * 100.0
                 lines.append(
-                    f"\nComparison vs Attempt #{prev.attempt_id}: "
-                    f"RMS ferror changed from {rms_prev:.1f} µm -> {rms_now:.1f} µm ({impr:+.1f}% improvement)."
+                    "\n"
+                    + self._t(
+                        "comparison_vs_attempt",
+                        prev_id=prev.attempt_id,
+                        rms_prev=rms_prev,
+                        rms_now=rms_now,
+                        impr=impr,
+                    )
                 )
 
         self.rationale_text.insert(tk.END, "\n".join(lines))
@@ -828,11 +1002,12 @@ class PIDAutoTunerGUI:
     def _insert_attempt_row(self, attempt: TuningAttempt) -> None:
         p = attempt.params
         k = attempt.kpis
+        stage_loc = translate_stage_name(attempt.stage_name, self.lang)
         vals = (
             f"#{attempt.attempt_id}",
             attempt.timestamp,
             attempt.axis,
-            attempt.stage_name,
+            stage_loc,
             f"{p.P:.4g}",
             f"{p.I:.4g}",
             f"{p.D:.4g}",
@@ -849,7 +1024,9 @@ class PIDAutoTunerGUI:
             f"{k.output_chatter_rms:.3f}",
             f"{k.overall_score:.1f}",
         )
-        item_id = self.history_tree.insert("", tk.END, iid=str(attempt.attempt_id), values=vals)
+        item_id = self.history_tree.insert(
+            "", tk.END, iid=str(attempt.attempt_id), values=vals
+        )
         self.history_tree.see(item_id)
 
     # ------------------------------------------------------------------
@@ -858,29 +1035,29 @@ class PIDAutoTunerGUI:
     def _draw_empty_plots(self) -> None:
         self.ax_ferror.clear()
         self.ax_vel.clear()
-        self.ax_ferror.set_title(
-            "LinuxCNC Integrated Oscilloscope — Following Error (joint.N.f-error)"
-        )
-        self.ax_ferror.set_ylabel("Following Error (mm)")
+        self.ax_ferror.set_title(self._t("scope_empty_title_top"))
+        self.ax_ferror.set_ylabel(self._t("scope_ylabel_top"))
         self.ax_ferror.grid(True, linestyle="--", alpha=0.5)
 
-        self.ax_vel.set_title("Commanded Velocity (mm/s) & PID Drive Output")
-        self.ax_vel.set_xlabel("Time (s)")
-        self.ax_vel.set_ylabel("Velocity (mm/s)")
+        self.ax_vel.set_title(self._t("scope_empty_title_bot"))
+        self.ax_vel.set_xlabel(self._t("scope_xlabel_bot"))
+        self.ax_vel.set_ylabel(self._t("scope_ylabel_bot"))
         self.ax_vel.grid(True, linestyle="--", alpha=0.5)
         self.scope_canvas.draw_idle()
 
         self.ax_evol_kpi.clear()
         self.ax_evol_param.clear()
         self.ax_evol_kpi.set_title(
-            "KPI Evolution Across Attempts (Lower Error = Better)"
+            self._t("evol_title_kpi", axis=self.axis_var.get())
         )
-        self.ax_evol_kpi.set_ylabel("Error (µm)")
+        self.ax_evol_kpi.set_ylabel(self._t("evol_ylabel_kpi"))
         self.ax_evol_kpi.grid(True, linestyle="--", alpha=0.5)
 
-        self.ax_evol_param.set_title("Parameter Evolution Across Attempts")
-        self.ax_evol_param.set_xlabel("Attempt #")
-        self.ax_evol_param.set_ylabel("Gain Value")
+        self.ax_evol_param.set_title(
+            self._t("evol_title_param", axis=self.axis_var.get())
+        )
+        self.ax_evol_param.set_xlabel(self._t("evol_xlabel_param"))
+        self.ax_evol_param.set_ylabel(self._t("evol_ylabel_param"))
         self.ax_evol_param.grid(True, linestyle="--", alpha=0.5)
         self.evol_canvas.draw_idle()
 
@@ -894,15 +1071,14 @@ class PIDAutoTunerGUI:
         self.ax_ferror.clear()
         self.ax_vel.clear()
 
-        # Shade motion phases on top plot for clear visual diagnosis
         phase_colors = {
-            MotionPhase.ACCEL_POS: ("#fef08a", "Accel/Decel"),
+            MotionPhase.ACCEL_POS: ("#fef08a", self._t("phase_accel_decel")),
             MotionPhase.DECEL_POS: ("#fef08a", "_nolegend_"),
             MotionPhase.ACCEL_NEG: ("#fef08a", "_nolegend_"),
             MotionPhase.DECEL_NEG: ("#fef08a", "_nolegend_"),
-            MotionPhase.CRUISE_POS: ("#dcfce7", "Constant Cruise (FF1)"),
+            MotionPhase.CRUISE_POS: ("#dcfce7", self._t("phase_cruise")),
             MotionPhase.CRUISE_NEG: ("#dcfce7", "_nolegend_"),
-            MotionPhase.SETTLING_POS: ("#e0e7ff", "Settling (P/D)"),
+            MotionPhase.SETTLING_POS: ("#e0e7ff", self._t("phase_settling")),
             MotionPhase.SETTLING_NEG: ("#e0e7ff", "_nolegend_"),
         }
         used_labels = set()
@@ -919,10 +1095,14 @@ class PIDAutoTunerGUI:
                     else:
                         used_labels.add(lbl)
                     self.ax_ferror.axvspan(
-                        tr.t[s_idx], tr.t[e_idx], color=color, alpha=0.35, label=lbl
+                        tr.t[s_idx],
+                        tr.t[e_idx],
+                        color=color,
+                        alpha=0.35,
+                        label=lbl,
                     )
 
-        # Plot comparison attempt overlay if available
+        att_word = "Essai" if self.lang == "fr" else "Attempt"
         if (
             self.comparison_attempt is not None
             and self.comparison_attempt.attempt_id != att.attempt_id
@@ -934,26 +1114,28 @@ class PIDAutoTunerGUI:
                 color="#94a3b8",
                 linestyle="--",
                 linewidth=1.3,
-                label=f"Attempt #{comp.attempt_id} ferror (RMS={comp.kpis.ferror_rms*1000:.1f} µm)",
+                label=f"{att_word} #{comp.attempt_id} ferror (RMS={comp.kpis.ferror_rms*1000:.1f} µm)",
             )
 
-        # Plot current attempt ferror in micrometers (µm)
         self.ax_ferror.plot(
             tr.t,
             tr.ferror * 1000.0,
             color="#dc2626",
             linewidth=1.6,
-            label=f"Attempt #{att.attempt_id} ferror (RMS={att.kpis.ferror_rms*1000:.1f} µm, Peak={att.kpis.ferror_max*1000:.1f} µm)",
+            label=f"{att_word} #{att.attempt_id} ferror (RMS={att.kpis.ferror_rms*1000:.1f} µm, Max={att.kpis.ferror_max*1000:.1f} µm)",
         )
         self.ax_ferror.axhline(0.0, color="#0f172a", linewidth=0.8, alpha=0.6)
         self.ax_ferror.set_title(
-            f"Axis {att.axis} — Following Error `joint.{AXIS_TO_JOINT.get(att.axis, 0)}.f-error` (µm)"
+            self._t(
+                "scope_title_top",
+                axis=att.axis,
+                joint=AXIS_TO_JOINT.get(att.axis, 0),
+            )
         )
-        self.ax_ferror.set_ylabel("Following Error (µm)")
+        self.ax_ferror.set_ylabel(self._t("scope_ylabel_top"))
         self.ax_ferror.legend(loc="upper right", fontsize=8)
         self.ax_ferror.grid(True, linestyle="--", alpha=0.4)
 
-        # Bottom subplot: Commanded & Actual Velocity + PID Output
         self.ax_vel.plot(
             tr.t,
             tr.vel_cmd,
@@ -967,11 +1149,11 @@ class PIDAutoTunerGUI:
             color="#059669",
             linewidth=1.1,
             alpha=0.85,
-            label="pid.output (x5 scaled)",
+            label="pid.output (x5)",
         )
-        self.ax_vel.set_title("Commanded Velocity & PID Drive Command (`pid.N.output`)")
-        self.ax_vel.set_xlabel("Time (s)")
-        self.ax_vel.set_ylabel("mm/s | Output")
+        self.ax_vel.set_title(self._t("scope_title_bot"))
+        self.ax_vel.set_xlabel(self._t("scope_xlabel_bot"))
+        self.ax_vel.set_ylabel(self._t("scope_ylabel_bot"))
         self.ax_vel.legend(loc="upper right", fontsize=8)
         self.ax_vel.grid(True, linestyle="--", alpha=0.4)
 
@@ -998,21 +1180,39 @@ class PIDAutoTunerGUI:
         self.ax_evol_param.clear()
 
         self.ax_evol_kpi.plot(
-            ids, max_vals, "o-", color="#dc2626", linewidth=1.8, label="Peak |ferror| (µm)"
+            ids,
+            max_vals,
+            "o-",
+            color="#dc2626",
+            linewidth=1.8,
+            label="Max |ferror| (µm)",
         )
         self.ax_evol_kpi.plot(
-            ids, rms_vals, "s-", color="#2563eb", linewidth=1.8, label="RMS ferror (µm)"
+            ids,
+            rms_vals,
+            "s-",
+            color="#2563eb",
+            linewidth=1.8,
+            label="RMS ferror (µm)",
         )
         self.ax_evol_kpi.plot(
-            ids, cruise_vals, "^--", color="#059669", linewidth=1.4, label="|Cruise Lag| (µm)"
+            ids,
+            cruise_vals,
+            "^--",
+            color="#059669",
+            linewidth=1.4,
+            label="|Cruise / Palier| (µm)",
         )
         self.ax_evol_kpi.plot(
-            ids, accel_vals, "d--", color="#d97706", linewidth=1.4, label="|Accel Spike| (µm)"
+            ids,
+            accel_vals,
+            "d--",
+            color="#d97706",
+            linewidth=1.4,
+            label="|Accel| (µm)",
         )
-        self.ax_evol_kpi.set_title(
-            f"Axis {axis} — Evolution of Following Error KPIs Across Attempts"
-        )
-        self.ax_evol_kpi.set_ylabel("Error (µm)")
+        self.ax_evol_kpi.set_title(self._t("evol_title_kpi", axis=axis))
+        self.ax_evol_kpi.set_ylabel(self._t("evol_ylabel_kpi"))
         self.ax_evol_kpi.set_xticks(ids)
         self.ax_evol_kpi.legend(loc="upper right", fontsize=8)
         self.ax_evol_kpi.grid(True, linestyle="--", alpha=0.5)
@@ -1029,11 +1229,9 @@ class PIDAutoTunerGUI:
         self.ax_evol_param.plot(
             ids, d_vals, "d--", color="#0284c7", linewidth=1.4, label="Dgain (x100)"
         )
-        self.ax_evol_param.set_title(
-            f"Axis {axis} — Evolution of PID & Feedforward Parameters Across Attempts"
-        )
-        self.ax_evol_param.set_xlabel("Attempt #")
-        self.ax_evol_param.set_ylabel("Scaled Parameter Value")
+        self.ax_evol_param.set_title(self._t("evol_title_param", axis=axis))
+        self.ax_evol_param.set_xlabel(self._t("evol_xlabel_param"))
+        self.ax_evol_param.set_ylabel(self._t("evol_ylabel_param"))
         self.ax_evol_param.set_xticks(ids)
         self.ax_evol_param.legend(loc="upper left", fontsize=8)
         self.ax_evol_param.grid(True, linestyle="--", alpha=0.5)
@@ -1061,9 +1259,7 @@ class PIDAutoTunerGUI:
         self._update_scope_plot()
         if self.current_attempt:
             self._update_rationale_panel(self.current_attempt)
-        self.status_var.set(
-            f"Overlaying Attempt #{att.attempt_id} (dashed gray line) against latest attempt on Oscilloscope."
-        )
+        self.status_var.set(self._t("status_overlay", num=att.attempt_id))
 
     def overlay_selected_attempt(self) -> None:
         self._on_history_row_selected(None)
@@ -1072,47 +1268,55 @@ class PIDAutoTunerGUI:
         att = self._get_selected_history_attempt()
         if att is None:
             messagebox.showinfo(
-                "Select an Attempt",
-                "Click a row in the Attempt History table first to restore its parameters.",
+                self._t("dlg_select_attempt_title"),
+                self._t("dlg_select_attempt_msg"),
             )
             return
         self.axis_var.set(att.axis)
         self._set_active_params_ui(att.params)
         self.backend.write_pid_params(att.axis, att.params)
         self.status_var.set(
-            f"Restored active parameters from Attempt #{att.attempt_id} (RMS={att.kpis.ferror_rms*1000:.1f} µm)."
+            self._t(
+                "status_restored",
+                num=att.attempt_id,
+                rms=att.kpis.ferror_rms * 1000.0,
+            )
         )
 
     def load_best_attempt_params(self) -> None:
         axis = self.axis_var.get().upper()
         axis_attempts = [a for a in self.attempts if a.axis == axis]
         if not axis_attempts:
-            messagebox.showinfo("No Attempts", f"No attempts recorded for Axis {axis} yet.")
             return
         best = min(axis_attempts, key=lambda a: a.kpis.overall_score)
         self._set_active_params_ui(best.params)
         self.backend.write_pid_params(axis, best.params)
         self.history_tree.selection_set(str(best.attempt_id))
         self.status_var.set(
-            f"Loaded best attempt for Axis {axis}: Attempt #{best.attempt_id} "
-            f"(Score={best.kpis.overall_score:.1f}, RMS={best.kpis.ferror_rms*1000:.1f} µm)."
+            self._t(
+                "status_best_loaded",
+                axis=axis,
+                num=best.attempt_id,
+                score=best.kpis.overall_score,
+                rms=best.kpis.ferror_rms * 1000.0,
+            )
         )
 
     def clear_history(self) -> None:
         if not self.attempts:
             return
-        if messagebox.askyesno("Clear History", "Clear all recorded tuning attempts?"):
+        if messagebox.askyesno(
+            self._t("dlg_clear_title"), self._t("dlg_clear_msg")
+        ):
             self.attempts.clear()
             self.current_attempt = None
             self.comparison_attempt = None
             for item in self.history_tree.get_children():
                 self.history_tree.delete(item)
             self._draw_empty_plots()
-            self.status_var.set("Cleared session attempt history.")
 
     def export_history_dialog(self) -> None:
         if not self.attempts:
-            messagebox.showinfo("No Data", "Run at least one test attempt before exporting.")
             return
 
         file_path = filedialog.asksaveasfilename(
@@ -1243,8 +1447,8 @@ class PIDAutoTunerGUI:
             messagebox.showerror("Save Error", msg)
 
 
-def launch_gui(force_sim: bool = False) -> None:
+def launch_gui(force_sim: bool = False, default_lang: str = "fr") -> None:
     """Create the root Tk window and start the PID Auto-Tuner GUI."""
     root = tk.Tk()
-    PIDAutoTunerGUI(root, force_sim=force_sim)
+    PIDAutoTunerGUI(root, force_sim=force_sim, default_lang=default_lang)
     root.mainloop()

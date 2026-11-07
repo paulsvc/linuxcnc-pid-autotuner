@@ -33,8 +33,14 @@ def main() -> None:
         action="store_true",
         help="Start in offline physics simulation mode even if LinuxCNC is running.",
     )
+    parser.add_argument(
+        "--lang",
+        choices=["fr", "en"],
+        default="fr",
+        help="Initial interface language ('fr' for Français, 'en' for English).",
+    )
     args = parser.parse_args()
-    launch_gui(force_sim=args.sim)
+    launch_gui(force_sim=args.sim, default_lang=args.lang)
 
 
 if __name__ == "__main__":
