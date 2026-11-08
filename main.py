@@ -35,9 +35,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--lang",
-        choices=["fr", "en"],
+        choices=["fr", "en", "de"],
         default="fr",
-        help="Initial interface language ('fr' for Français, 'en' for English).",
+        help="Initial interface language ('fr' for Français, 'en' for English, 'de' for Deutsch).",
     )
     args = parser.parse_args()
     launch_gui(force_sim=args.sim, default_lang=args.lang)

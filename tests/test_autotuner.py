@@ -183,7 +183,7 @@ BIAS = 0.0
         self.assertAlmostEqual(sug2, -50.0)
 
     def test_language_switching_fr_and_en(self) -> None:
-        """Verify switching between English and French updates UI labels, menus, and rationale."""
+        """Verify switching between English, French, and German updates UI labels, menus, and rationale."""
         import tkinter as tk
         from lcnc_pid_tuner.gui import PIDAutoTunerGUI
 
@@ -201,6 +201,14 @@ BIAS = 0.0
             self.assertIn("Raideur", app.ui_str["param_P"].get())
             rationale_fr = app.rationale_text.get("1.0", tk.END)
             self.assertIn("Essai #1", rationale_fr)
+
+            # Switch to German dynamically
+            app.set_language("de")
+            self.assertEqual(app.lang, "de")
+            self.assertIn("Achse", app.ui_str["axis_label"].get())
+            self.assertIn("Steifigkeit", app.ui_str["param_P"].get())
+            rationale_de = app.rationale_text.get("1.0", tk.END)
+            self.assertIn("Versuch #1", rationale_de)
 
             # Switch back to English
             app.set_language("en")

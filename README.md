@@ -1,6 +1,6 @@
 # LinuxCNC PID & Feedforward Auto-Tuner
 
-**[🇫🇷 Version Française](#-version-française) | [🇬🇧 English Version](#-english-version)**
+**[🇫🇷 Version Française](#-version-française) | [🇬🇧 English Version](#-english-version) | [🇩🇪 Deutsche Version](#-deutsche-version)**
 
 ---
 
@@ -24,7 +24,7 @@ git clone https://github.com/paulsvc/linuxcnc-pid-autotuner.git
 cd linuxcnc-pid-autotuner
 python3 main.py
 ```
-*(Astuce : l'interface démarre en **Français** par défaut. Vous pouvez changer la langue à tout moment via le menu **`Langue / Language`** ou avec `python3 main.py --lang en`. Si LinuxCNC n'est pas lancé, le logiciel bascule automatiquement en **Mode Simulation** avec un modèle physique à 1 kHz).*
+*(Astuce : l'interface démarre en **Français** par défaut. Vous pouvez changer la langue à tout moment via le menu **`Langue / Language / Sprache`** ou avec `python3 main.py --lang de` ou `python3 main.py --lang en`. Si LinuxCNC n'est pas lancé, le logiciel bascule automatiquement en **Mode Simulation** avec un modèle physique à 1 kHz).*
 
 ### 2. Utilisation en 3 Étapes Simples
 
@@ -77,7 +77,7 @@ git clone https://github.com/paulsvc/linuxcnc-pid-autotuner.git
 cd linuxcnc-pid-autotuner
 python3 main.py --lang en
 ```
-*(Tip: You can switch between **Français** and **English** anytime via the **`Langue / Language`** top menu or toolbar dropdown. If LinuxCNC is not currently running, the GUI automatically starts in **Simulation Mode** with a built-in 1 kHz physics model).*
+*(Tip: You can switch between **English**, **Français**, and **Deutsch** anytime via the **`Language / Langue / Sprache`** top menu or toolbar dropdown. If LinuxCNC is not currently running, the GUI automatically starts in **Simulation Mode** with a built-in 1 kHz physics model).*
 
 ### 2. How to Tune an Axis in 3 Clicks
 
@@ -107,3 +107,56 @@ python3 main.py --lang en
 | **Drive Output Chatter RMS** | Full Cycle (`pid.output`) | Detects linear-scale quantization buzz; backs off **`Dgain` / `Pgain`** |
 | **Standstill Hunting Peak-to-Peak** | Dwell / Standstill | Detects backlash limit-cycling; widens **`deadband`** & reduces **`Igain`** |
 | **Steady-State Error** | Dwell / Standstill | **`Igain`** + **`maxerrorI`** (Anti-windup clamp) |
+
+---
+
+## 🇩🇪 Deutsche Version
+
+Schlanke grafische Benutzeroberfläche (**Tkinter + Matplotlib**) zur automatischen Optimierung von **PID- und Vorsteuerungsregelkreisen (`FF0`, `FF1`, `FF2`, `deadband`, `bias`, `maxerrorI`)** in **LinuxCNC**, speziell ausgelegt für **Drehzahl-Servoverstärker mit Linearmaßstab-Rückführung**.
+
+Die Software generiert ein sicheres G-Code-Hin- und Rückfahrprogramm, zeichnet HAL-Oszilloskopsignale in Echtzeit auf (`joint.N.f-error`, `joint.N.pos-cmd`, `joint.N.pos-fb`, `joint.N.vel-cmd`, `pid.N.output`), wertet über 10 regelungstechnische Kennzahlen (KPIs) je Bewegungsphase aus und schlägt verbesserte Parameter vor. Gleichzeitig wird eine **Reihe von Versuchen protokolliert**, um den Verlauf und die Konvergenz der Regelung direkt nachzuvollziehen.
+
+### 1. Schnellstart auf LinuxCNC (Debian Bookworm / Bullseye)
+
+Erforderliche Standard-Python-Pakete installieren:
+```bash
+sudo apt update
+sudo apt install -y git python3-tk python3-numpy python3-matplotlib
+```
+
+Repository von GitHub klonen und GUI starten:
+```bash
+git clone https://github.com/paulsvc/linuxcnc-pid-autotuner.git
+cd linuxcnc-pid-autotuner
+python3 main.py --lang de
+```
+*(Tipp: Sie können jederzeit über das Menü **`Sprache / Language / Langue`** oder das Dropdown oben rechts zwischen **Deutsch**, **Französisch** und **Englisch** wechseln. Läuft LinuxCNC gerade nicht, startet automatisch der integrierte **Simulationsmodus** mit einem 1-kHz-Physikmodell).*
+
+### 2. Achse einstellen in 3 einfachen Schritten
+
+1. **Achse wählen & Verfahrweg einstellen (Obere Leiste)**
+   - Wählen Sie die Zielachse (`X`, `Y`, `Z` oder `A`).
+   - **Software-Endlagenschutz:** Fahren Sie die Achse in einen freien Bereich und klicken Sie auf **`📍 Pos lesen`**, um die aktuelle Koordinate als Startpunkt (`Start (mm)`) zu übernehmen.
+   - Stellen Sie den **`Weg (mm)`** ein (z. B. `20 mm` oder `-20 mm`) und nutzen Sie **`↔ Richtung umkehren`**, falls Sie nahe an einer Endlage stehen. Die Software prüft vor jedem Start automatisch die LinuxCNC-Softwaregrenzen (`MIN_LIMIT` / `MAX_LIMIT`).
+
+2. **G-Code-Test starten & auswerten (`▶ 1. Test starten (G-Code + Aufn.)`)**
+   - Führt die Hin- und Rückfahrt mit Einschwingpausen aus, zeichnet HAL-Signale auf, segmentiert die Bewegung in Phasen (**Stillstand**, **Beschleunigung**, **Konstantfahrt**, **Verzögerung**, **Einschwingen**) und zeigt die **Vorgeschlagenen Werte** neben den **Aktuellen Werten** an.
+
+3. **Werte übernehmen & Verlauf verfolgen (`⚡ 2. Übernehmen & Neustart` oder `🤖 Auto-Tune (5 Versuche)`)**
+   - Schreibt die vorgeschlagenen Werte direkt in HAL und startet sofort den nächsten Versuch, um die Verbesserung zu prüfen.
+   - Alle Durchläufe werden in der Tabelle **Versuchsreihe — Verlaufsprotokoll** unten protokolliert.
+   - **Klicken Sie auf eine beliebige Zeile im Verlauf**, um die Schleppfehlerkurve (gestrichelt) im Oszilloskop zum direkten Vergleich zu überlagern, oder klicken Sie auf **`⏪ Parameter dieses Versuchs wiederherstellen`** / **`🏆 Besten Versuch laden`**.
+   - Nach erfolgreicher Optimierung klicken Sie auf **`💾 In .INI speichern`** (eine Sicherungskopie `.ini.bak.<Zeitstempel>` wird automatisch erstellt).
+
+### 3. Bewertete Kennzahlen (KPIs) & zugehörige Parameter
+
+| Kennzahl (KPI) | Bewegungsphase | Optimierter Parameter |
+| :--- | :--- | :--- |
+| **RMS- & Max.-Schleppfehler** | Gesamter Zyklus | Gesamte Führungssteifigkeit (**`Pgain`**, **`FF1`**, **`FF2`**) |
+| **Schleppfehler bei Konstantfahrt** | Konstantfahrt | **`FF1`** (Geschwindigkeits-Vorsteuerung) |
+| **Richtungsasymmetrie (+/-)** | Vor- vs. Rückfahrt | **`bias`** (Schwerkraft- / Vertikallastkompensation, z. B. Z-Achse) |
+| **Beschleunigungs- & Bremsspitzen** | Rampen (Beschl./Verzög.) | **`FF2`** (Beschleunigungs-Vorsteuerung — verhindert Bremsüberschwinger) |
+| **Überschwingen & Einschwingzeit** | Nach Verzögerungsende | **`Dgain`** (Dämpfung) & **`Pgain`** |
+| **Regelungsrauschen RMS** | Gesamter Zyklus (`pid.output`) | Erkennt Maßstabsquantisierungsrauschen; nimmt **`Dgain` / `Pgain`** zurück |
+| **Stillstand-Pendeln (Spitze-Spitze)** | Pause / Stillstand | Erkennt Schwingen im Umkehrspiel; passt **`deadband`** an & senkt **`Igain`** |
+| **Statischer Schleppfehler** | Pause / Stillstand | **`Igain`** + **`maxerrorI`** (Anti-Windup-Begrenzung) |

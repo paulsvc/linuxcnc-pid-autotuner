@@ -968,7 +968,8 @@ class PIDAutoTunerGUI:
         self.rationale_text.delete("1.0", tk.END)
 
         stage_loc = translate_stage_name(sug.stage_name, self.lang)
-        prefix = "Essai" if self.lang == "fr" else "Attempt"
+        prefix_map = {"fr": "Essai", "de": "Versuch"}
+        prefix = prefix_map.get(self.lang, "Attempt")
         lines = [f"{prefix} #{attempt.attempt_id} — {stage_loc}\n"]
         if sug.warnings:
             for w in sug.warnings:
@@ -1102,7 +1103,8 @@ class PIDAutoTunerGUI:
                         label=lbl,
                     )
 
-        att_word = "Essai" if self.lang == "fr" else "Attempt"
+        att_word_map = {"fr": "Essai", "de": "Versuch"}
+        att_word = att_word_map.get(self.lang, "Attempt")
         if (
             self.comparison_attempt is not None
             and self.comparison_attempt.attempt_id != att.attempt_id

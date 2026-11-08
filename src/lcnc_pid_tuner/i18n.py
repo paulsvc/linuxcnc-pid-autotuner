@@ -1,4 +1,4 @@
-"""Internationalization (i18n) support for English (en) and French (fr)."""
+"""Internationalization (i18n) support for English (en), French (fr), and German (de)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Dict
 SUPPORTED_LANGUAGES = {
     "en": "English",
     "fr": "Français",
+    "de": "Deutsch",
 }
 
 TRANSLATIONS: Dict[str, Dict[str, str]] = {
@@ -18,7 +19,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "menu_save_ini": "Save Active Parameters to .INI...",
         "menu_export_history": "Export Attempts History (CSV / JSON)...",
         "menu_exit": "Exit",
-        "menu_language": "Language / Langue",
+        "menu_language": "Language / Langue / Sprache",
         "lang_label": "Language:",
         # Top Toolbar
         "step1_frame": "Step 1: Axis, Motion Profile & Test Execution",
@@ -142,7 +143,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "menu_save_ini": "Enregistrer les paramètres dans .INI...",
         "menu_export_history": "Exporter l'historique des essais (CSV / JSON)...",
         "menu_exit": "Quitter",
-        "menu_language": "Langue / Language",
+        "menu_language": "Langue / Language / Sprache",
         "lang_label": "Langue :",
         # Top Toolbar
         "step1_frame": "Étape 1 : Sélection de l'Axe, Profil G-Code & Lancement",
@@ -258,21 +259,155 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dlg_soft_limit_title": "Protection des Limites de Course",
         "dlg_soft_limit_ask": "{msg}\n\nVoulez-vous ajuster automatiquement la course à {safe_travel:+.1f} mm et continuer ?",
     },
+    "de": {
+        # Window & Menu
+        "app_title": "LinuxCNC PID & Feedforward Auto-Tuner (Drehzahl-Servo + Linearmaßstab)",
+        "menu_file": "Datei",
+        "menu_load_ini": ".INI-Konfiguration laden...",
+        "menu_save_ini": "Aktive Parameter in .INI speichern...",
+        "menu_export_history": "Versuchsverlauf exportieren (CSV / JSON)...",
+        "menu_exit": "Beenden",
+        "menu_language": "Sprache / Language / Langue",
+        "lang_label": "Sprache:",
+        # Top Toolbar
+        "step1_frame": "Schritt 1: Achsauswahl, Bewegungsprofil & Testausführung",
+        "axis_label": "Achse:",
+        "start_label": "Start (mm):",
+        "btn_read_pos": "📍 Pos lesen",
+        "travel_label": "Weg (mm):",
+        "btn_flip": "↔ Richtung umkehren",
+        "feed_label": "Vorschub (mm/min):",
+        "accel_label": "Beschl. (mm/s²):",
+        "dwell_label": "Pause (s):",
+        "btn_run_test": "▶ 1. Test starten (G-Code + Aufn.)",
+        "btn_apply_retest": "⚡ 2. Übernehmen & Neustart",
+        "btn_autotune": "🤖 Auto-Tune (5 Versuche)",
+        "btn_stop": "🛑 STOPP",
+        "chk_sim_mode": "Simulationsmodus",
+        # Left Panel: Parameters
+        "step2_frame": "Schritt 2: PID & Vorsteuerwerte (Aktuell vs Vorgeschlagen)",
+        "hdr_param": "Parameter",
+        "hdr_active": "Aktueller Wert",
+        "hdr_suggested": "Vorschlag",
+        "hdr_delta": "Delta",
+        "unchanged": "(unverändert)",
+        "param_P": "Pgain (Steifigkeit)",
+        "param_I": "Igain (Stationär)",
+        "param_D": "Dgain (Dämpfung)",
+        "param_FF0": "FF0 (Positions-FF)",
+        "param_FF1": "FF1 (Geschw.-FF)",
+        "param_FF2": "FF2 (Beschl.-FF)",
+        "param_deadband": "Deadband / Totzone (mm)",
+        "param_bias": "Bias (Offset)",
+        "param_maxerrorI": "MaxErrorI (mm)",
+        "btn_copy_suggested": "✓ Vorschlag -> Aktiv kopieren",
+        "btn_load_ini": "📂 .INI laden",
+        "btn_save_ini": "💾 In .INI speichern",
+        # Left Panel: KPIs
+        "kpi_frame": "Gemessene Oszilloskop-KPIs (Letzter Versuch)",
+        "kpi_ferror_rms": "RMS Schleppfehler:",
+        "kpi_ferror_max": "Max. Schleppfehler:",
+        "kpi_cruise_error_mean": "Konstantfahrt-Schlepp (FF1):",
+        "kpi_accel_peak_error": "Beschl.-Spitze (FF2):",
+        "kpi_overshoot_mm": "Überschwingen (D/P):",
+        "kpi_settling_time_ms": "Einschwingzeit:",
+        "kpi_standstill_hunting_p2p": "Stillstand-Pendeln:",
+        "kpi_output_chatter_rms": "Regelrauschen RMS:",
+        "kpi_cruise_asymmetry": "+/- Asymmetrie (Bias):",
+        "kpi_overall_score": "Gesamt-Qualitätswert:",
+        # Left Panel: Rationale
+        "rationale_frame": "Regelungstechnische Diagnose & Begründung",
+        "rationale_welcome": (
+            "Klicken Sie auf '▶ 1. Test starten (G-Code + Aufn.)', um die Referenzfahrt durchzuführen, "
+            "HAL-Oszilloskopsignale aufzuzeichnen und optimale PID- und FF-Werte zu berechnen."
+        ),
+        "comparison_vs_attempt": (
+            "Vergleich zu Versuch #{prev_id}: RMS-Schleppfehler von "
+            "{rms_prev:.1f} µm -> {rms_now:.1f} µm geändert ({impr:+.1f}% Verbesserung)."
+        ),
+        # Notebook Tabs & Plots
+        "tab_scope": "📈 Integriertes Oszilloskop (Halscope-Ansicht)",
+        "tab_evolution": "📊 Verlaufsdiagramm (KPIs & Parameter)",
+        "tab_gcode": "📝 Test-G-Code-Programm",
+        "scope_empty_title_top": "LinuxCNC Integriertes Oszilloskop — Schleppfehler (joint.N.f-error)",
+        "scope_ylabel_top": "Schleppfehler (µm)",
+        "scope_empty_title_bot": "Sollgeschwindigkeit (mm/s) & PID-Stellgröße",
+        "scope_xlabel_bot": "Zeit (s)",
+        "scope_ylabel_bot": "mm/s | Stellgröße",
+        "scope_title_top": "Achse {axis} — Schleppfehler `joint.{joint}.f-error` (µm)",
+        "scope_title_bot": "Sollgeschwindigkeit & PID-Stellantrieb (`pid.N.output`)",
+        "phase_accel_decel": "Beschl./Verzög.",
+        "phase_cruise": "Konstantfahrt (FF1)",
+        "phase_settling": "Einschwingen (P/D)",
+        "evol_title_kpi": "Achse {axis} — Entwicklung der Schleppfehler-KPIs über Versuche",
+        "evol_ylabel_kpi": "Fehler (µm)",
+        "evol_title_param": "Achse {axis} — Entwicklung der PID- & FF-Parameter über Versuche",
+        "evol_xlabel_param": "Versuch #",
+        "evol_ylabel_param": "Skalierter Parameterwert",
+        # History Panel
+        "history_frame": "Versuchsreihe — Verlaufsprotokoll (Zeile anklicken zum Überlagern oder Wiederherstellen)",
+        "col_attempt": "#",
+        "col_time": "Zeit",
+        "col_axis": "Achse",
+        "col_stage": "Einstellstufe",
+        "col_deadband": "Totzone",
+        "col_bias": "Bias",
+        "col_rms_um": "RMS (µm)",
+        "col_max_um": "Spitze (µm)",
+        "col_cruise_um": "Konstant (µm)",
+        "col_accel_um": "Beschl. (µm)",
+        "col_overshoot": "Überschw.",
+        "col_settling_ms": "Einschw. (ms)",
+        "col_chatter": "Rauschen",
+        "col_score": "Score",
+        "btn_overlay": "🔍 Ausgewählten Versuch auf Oszilloskop überlagern",
+        "btn_restore": "⏪ Parameter dieses Versuchs wiederherstellen",
+        "btn_load_best": "🏆 Besten Versuch laden",
+        "btn_clear_history": "🗑 Verlauf leeren",
+        "btn_export_history": "📤 Verlauf exportieren (CSV / JSON)",
+        # Status & Dialogs
+        "status_ready": "Achse {axis} gewählt (Grenzen: [{min_lim:.1f}, {max_lim:.1f} mm]). Start/Weg anpassen und '▶ 1. Test starten' klicken.",
+        "status_running": "G-Code-Test auf Achse {axis} läuft, HAL-Signale werden aufgezeichnet...",
+        "status_attempt_done": "Versuch #{num} fertig — RMS Schleppfehler: {rms:.1f} µm | Spitze: {peak:.1f} µm | Score: {score:.1f}.",
+        "status_overlay": "Überlagere Versuch #{num} (gestrichelte graue Linie) auf Oszilloskop.",
+        "status_restored": "Parameter aus Versuch #{num} wiederhergestellt (RMS={rms:.1f} µm).",
+        "status_best_loaded": "Bester Versuch für Achse {axis} geladen: Versuch #{num} (Score={score:.1f}, RMS={rms:.1f} µm).",
+        "status_read_pos": "Startposition (mm) auf aktuelle Position von Achse {axis} gesetzt: {pos:.3f} mm.",
+        "status_flipped": "Verfahrrichtung umgekehrt: {start:.1f} mm -> {end:.1f} mm -> {start:.1f} mm.",
+        "dlg_no_suggestion_title": "Noch kein Vorschlag",
+        "dlg_no_suggestion_msg": "Bitte zuerst auf '▶ 1. Test starten (G-Code + Aufn.)' klicken, um Werte zu ermitteln.",
+        "dlg_select_attempt_title": "Versuch auswählen",
+        "dlg_select_attempt_msg": "Bitte zuerst eine Zeile in der Verlaufstabelle auswählen.",
+        "dlg_clear_title": "Verlauf leeren",
+        "dlg_clear_msg": "Möchten Sie alle aufgezeichneten Versuche löschen?",
+        "dlg_soft_limit_title": "Software-Endlagenschutz",
+        "dlg_soft_limit_ask": "{msg}\n\nVerfahrweg automatisch auf {safe_travel:+.1f} mm anpassen und fortfahren?",
+    },
 }
 
 
-STAGE_TRANSLATIONS_FR: Dict[str, str] = {
-    "Stability Recovery (Reduce Chatter / Buzz)": "Récupération de Stabilité (Réduction Vibration / Bruit)",
-    "Anti-Hunting Protection (Linear Scale Backlash)": "Protection Anti-Pompage (Jeu / Règle Linéaire)",
-    "Stage 1: Velocity Feedforward (FF1) & Bias Calibration": "Étape 1 : Précommande de Vitesse (FF1) & Calibration Bias",
-    "Stage 2: Acceleration Feedforward (FF2) & Fine FF1": "Étape 2 : Précommande d'Accélération (FF2) & Affinage FF1",
-    "Stage 3: Proportional (P) Stiffness & Damping Optimization": "Étape 3 : Gain Proportionnel (P - Raideur) & Amortissement (D)",
-    "Stage 4: Integral (Igain), Anti-Windup & Final Polish": "Étape 4 : Gain Intégral (I), Anti-Saturation & Finition",
+STAGE_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    "fr": {
+        "Stability Recovery (Reduce Chatter / Buzz)": "Récupération de Stabilité (Réduction Vibration / Bruit)",
+        "Anti-Hunting Protection (Linear Scale Backlash)": "Protection Anti-Pompage (Jeu / Règle Linéaire)",
+        "Stage 1: Velocity Feedforward (FF1) & Bias Calibration": "Étape 1 : Précommande de Vitesse (FF1) & Calibration Bias",
+        "Stage 2: Acceleration Feedforward (FF2) & Fine FF1": "Étape 2 : Précommande d'Accélération (FF2) & Affinage FF1",
+        "Stage 3: Proportional (P) Stiffness & Damping Optimization": "Étape 3 : Gain Proportionnel (P - Raideur) & Amortissement (D)",
+        "Stage 4: Integral (Igain), Anti-Windup & Final Polish": "Étape 4 : Gain Intégral (I), Anti-Saturation & Finition",
+    },
+    "de": {
+        "Stability Recovery (Reduce Chatter / Buzz)": "Stabilitätswiederherstellung (Vibration / Brummen reduzieren)",
+        "Anti-Hunting Protection (Linear Scale Backlash)": "Anti-Pendel-Schutz (Spiel / Linearmaßstab)",
+        "Stage 1: Velocity Feedforward (FF1) & Bias Calibration": "Stufe 1: Geschwindigkeits-Vorsteuerung (FF1) & Bias-Kalibrierung",
+        "Stage 2: Acceleration Feedforward (FF2) & Fine FF1": "Stufe 2: Beschleunigungs-Vorsteuerung (FF2) & Fein-FF1",
+        "Stage 3: Proportional (P) Stiffness & Damping Optimization": "Stufe 3: Proportionalverstärkung (P) & Dämpfung (D)",
+        "Stage 4: Integral (Igain), Anti-Windup & Final Polish": "Stufe 4: Integralanteil (I), Anti-Windup & Feinabstimmung",
+    },
 }
 
 
 def tr_text(lang: str, key: str, **kwargs: object) -> str:
-    """Return translated string for `lang` ('en' or 'fr') formatted with `kwargs`."""
+    """Return translated string for `lang` formatted with `kwargs`."""
     table = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
     template = table.get(key, TRANSLATIONS["en"].get(key, key))
     if kwargs:
@@ -284,70 +419,128 @@ def tr_text(lang: str, key: str, **kwargs: object) -> str:
 
 
 def translate_stage_name(stage: str, lang: str) -> str:
-    """Translate tuning stage title into French when `lang == 'fr'`."""
-    if lang == "fr":
-        return STAGE_TRANSLATIONS_FR.get(stage, stage)
+    """Translate tuning stage title into selected language."""
+    if lang in STAGE_TRANSLATIONS:
+        return STAGE_TRANSLATIONS[lang].get(stage, stage)
     return stage
 
 
 def translate_rationale_line(line: str, lang: str) -> str:
-    """Translate technical diagnosis lines into French when `lang == 'fr'`."""
-    if lang != "fr":
-        return line
-    replacements = [
-        ("High-frequency drive chatter detected", "Broutage haute fréquence détecté sur la commande"),
-        ("Linear scale quantization or mechanical resonance is being amplified.", "La quantification de la règle linéaire ou une résonance mécanique est amplifiée."),
-        ("Reduced Dgain", "Réduction de Dgain"),
-        ("because D amplifies linear scale step quantization", "car le gain D amplifie les pas de la règle linéaire"),
-        ("Backed off Pgain", "Réduction de Pgain"),
-        ("by 22% to restore stability margin.", "de 22% pour restaurer la marge de stabilité."),
-        ("Standstill hunting detected", "Pompage à l'arrêt détecté"),
-        ("peak-to-peak", "crête-à-crête"),
-        ("Integral action is cycling across mechanical backlash.", "L'action intégrale oscille dans le jeu mécanique."),
-        ("Reduced Igain", "Réduction de Igain"),
-        ("and widened deadband to", "et élargissement de la zone morte (deadband) à"),
-        ("to stop backlash limit-cycling.", "pour stopper le pompage à l'arrêt."),
-        ("Set deadband to", "Réglage de la zone morte (deadband) à"),
-        ("(1.5x linear scale resolution) to prevent encoder quantization dither at standstill.", "(1,5x la résolution de la règle) pour éviter les micro-oscillations à l'arrêt."),
-        ("Reset FF0 to 0.0 (position feedforward must be 0 on linear axes; velocity-mode servos use FF1 and FF2).", "Remise à 0.0 de FF0 (la précommande de position doit rester à 0 sur un axe linéaire ; utiliser FF1 et FF2)."),
-        ("Cruise following error averaged", "Erreur de poursuite moyenne en vitesse constante :"),
-        ("at ", "à "),
-        ("Updated FF1", "Mise à jour de FF1"),
-        ("so the velocity command matches axis speed directly.", "pour que la consigne de vitesse corresponde directement à la vitesse de l'axe."),
-        ("Detected directional asymmetry", "Asymétrie directionnelle détectée"),
-        ("between + and - moves", "entre les mouvements + et -"),
-        ("Adjusted bias", "Ajustement du Bias"),
-        ("to counter constant load/gravity.", "pour compenser la charge constante / gravité."),
-        ("Raised Pgain", "Augmentation de Pgain"),
-        ("to tighten position tracking.", "pour rigidifier l'asservissement de position."),
-        ("Refined FF1", "Affinage de FF1"),
-        ("to zero out", "pour annuler"),
-        ("residual cruise lag.", "de traînée résiduelle à vitesse constante."),
-        ("Accel/Decel transient lag averaged", "Retard transitoire en accél./décél. mesuré à"),
-        ("Updated FF2", "Mise à jour de FF2"),
-        ("to pre-compensate servo velocity-loop lag and eliminate braking overshoot.", "pour pré-compenser le retard de la boucle de vitesse et éliminer le dépassement au freinage."),
-        ("Refined bias", "Affinage du Bias"),
-        ("for symmetric tracking.", "pour un suivi symétrique."),
-        ("Output chatter is low", "Le bruit de commande est faible"),
-        ("Increased Pgain", "Augmentation de Pgain"),
-        ("to reduce reversal spikes and increase stiffness.", "pour réduire les pics d'inversion et augmenter la raideur."),
-        ("Added light Dgain", "Ajout d'un léger Dgain"),
-        ("to damp", "pour amortir"),
-        ("settling overshoot without amplifying scale quantization.", "de dépassement sans amplifier la quantification de la règle linéaire."),
-        ("Micro-trimmed FF1", "Micro-ajustement de FF1"),
-        ("cruise accuracy.", "de précision en palier de vitesse."),
-        ("Micro-trimmed FF2", "Micro-ajustement de FF2"),
-        ("ramp accuracy.", "de précision en rampe d'accélération."),
-        ("Added conservative Igain", "Ajout d'un gain intégral prudent Igain"),
-        ("with maxerrorI=", "avec limitation maxerrorI="),
-        ("to eliminate standstill residual error safely.", "pour annuler l'erreur statique à l'arrêt sans risque de pompage."),
-        ("Axis is converged", "L'axe est parfaitement réglé"),
-        ("Ready to save to .INI!", "Prêt à être sauvegardé dans le fichier .INI !"),
-        ("Drive saturated for", "Variateur saturé pendant"),
-        ("of the move", "du mouvement"),
-        ("Consider lowering feedrate/acceleration or checking OUTPUT_SCALE.", "Réduisez l'avance/accélération ou vérifiez OUTPUT_SCALE."),
-    ]
-    out = line
-    for en_sub, fr_sub in replacements:
-        out = out.replace(en_sub, fr_sub)
-    return out
+    """Translate technical diagnosis lines into target language."""
+    if lang == "fr":
+        replacements = [
+            ("High-frequency drive chatter detected", "Broutage haute fréquence détecté sur la commande"),
+            ("Linear scale quantization or mechanical resonance is being amplified.", "La quantification de la règle linéaire ou une résonance mécanique est amplifiée."),
+            ("Reduced Dgain", "Réduction de Dgain"),
+            ("because D amplifies linear scale step quantization", "car le gain D amplifie les pas de la règle linéaire"),
+            ("Backed off Pgain", "Réduction de Pgain"),
+            ("by 22% to restore stability margin.", "de 22% pour restaurer la marge de stabilité."),
+            ("Standstill hunting detected", "Pompage à l'arrêt détecté"),
+            ("peak-to-peak", "crête-à-crête"),
+            ("Integral action is cycling across mechanical backlash.", "L'action intégrale oscille dans le jeu mécanique."),
+            ("Reduced Igain", "Réduction de Igain"),
+            ("and widened deadband to", "et élargissement de la zone morte (deadband) à"),
+            ("to stop backlash limit-cycling.", "pour stopper le pompage à l'arrêt."),
+            ("Set deadband to", "Réglage de la zone morte (deadband) à"),
+            ("(1.5x linear scale resolution) to prevent encoder quantization dither at standstill.", "(1,5x la résolution de la règle) pour éviter les micro-oscillations à l'arrêt."),
+            ("Reset FF0 to 0.0 (position feedforward must be 0 on linear axes; velocity-mode servos use FF1 and FF2).", "Remise à 0.0 de FF0 (la précommande de position doit rester à 0 sur un axe linéaire ; utiliser FF1 et FF2)."),
+            ("Cruise following error averaged", "Erreur de poursuite moyenne en vitesse constante :"),
+            ("at ", "à "),
+            ("Updated FF1", "Mise à jour de FF1"),
+            ("so the velocity command matches axis speed directly.", "pour que la consigne de vitesse corresponde directement à la vitesse de l'axe."),
+            ("Detected directional asymmetry", "Asymétrie directionnelle détectée"),
+            ("between + and - moves", "entre les mouvements + et -"),
+            ("Adjusted bias", "Ajustement du Bias"),
+            ("to counter constant load/gravity.", "pour compenser la charge constante / gravité."),
+            ("Raised Pgain", "Augmentation de Pgain"),
+            ("to tighten position tracking.", "pour rigidifier l'asservissement de position."),
+            ("Refined FF1", "Affinage de FF1"),
+            ("to zero out", "pour annuler"),
+            ("residual cruise lag.", "de traînée résiduelle à vitesse constante."),
+            ("Accel/Decel transient lag averaged", "Retard transitoire en accél./décél. mesuré à"),
+            ("Updated FF2", "Mise à jour de FF2"),
+            ("to pre-compensate servo velocity-loop lag and eliminate braking overshoot.", "pour pré-compenser le retard de la boucle de vitesse et éliminer le dépassement au freinage."),
+            ("Refined bias", "Affinage du Bias"),
+            ("for symmetric tracking.", "pour un suivi symétrique."),
+            ("Output chatter is low", "Le bruit de commande est faible"),
+            ("Increased Pgain", "Augmentation de Pgain"),
+            ("to reduce reversal spikes and increase stiffness.", "pour réduire les pics d'inversion et augmenter la raideur."),
+            ("Added light Dgain", "Ajout d'un léger Dgain"),
+            ("to damp", "pour amortir"),
+            ("settling overshoot without amplifying scale quantization.", "de dépassement sans amplifier la quantification de la règle linéaire."),
+            ("Micro-trimmed FF1", "Micro-ajustement de FF1"),
+            ("cruise accuracy.", "de précision en palier de vitesse."),
+            ("Micro-trimmed FF2", "Micro-ajustement de FF2"),
+            ("ramp accuracy.", "de précision en rampe d'accélération."),
+            ("Added conservative Igain", "Ajout d'un gain intégral prudent Igain"),
+            ("with maxerrorI=", "avec limitation maxerrorI="),
+            ("to eliminate standstill residual error safely.", "pour annuler l'erreur statique à l'arrêt sans risque de pompage."),
+            ("Axis is converged", "L'axe est parfaitement réglé"),
+            ("Ready to save to .INI!", "Prêt à être sauvegardé dans le fichier .INI !"),
+            ("Drive saturated for", "Variateur saturé pendant"),
+            ("of the move", "du mouvement"),
+            ("Consider lowering feedrate/acceleration or checking OUTPUT_SCALE.", "Réduisez l'avance/accélération ou vérifiez OUTPUT_SCALE."),
+        ]
+        out = line
+        for en_sub, tr_sub in replacements:
+            out = out.replace(en_sub, tr_sub)
+        return out
+    elif lang == "de":
+        replacements = [
+            ("High-frequency drive chatter detected", "Hochfrequentes Antriebsrauschen/Brummen erkannt"),
+            ("Linear scale quantization or mechanical resonance is being amplified.", "Linearmaßstab-Quantisierung oder mechanische Resonanz wird verstärkt."),
+            ("Reduced Dgain", "Dgain reduziert"),
+            ("because D amplifies linear scale step quantization", "weil D die Schrittquantisierung des Linearmaßstabs verstärkt"),
+            ("Backed off Pgain", "Pgain zurückgenommen"),
+            ("by 22% to restore stability margin.", "um 22%, um die Stabilitätsreserve wiederherzustellen."),
+            ("Standstill hunting detected", "Stillstandspendeln erkannt"),
+            ("peak-to-peak", "Spitze-Spitze"),
+            ("Integral action is cycling across mechanical backlash.", "Integralanteil schwingt im mechanischen Umkehrspiel."),
+            ("Reduced Igain", "Igain reduziert"),
+            ("and widened deadband to", "und Totzone (Deadband) erweitert auf"),
+            ("to stop backlash limit-cycling.", "um das Pendeln im Umkehrspiel zu stoppen."),
+            ("Set deadband to", "Totzone (Deadband) gesetzt auf"),
+            ("(1.5x linear scale resolution) to prevent encoder quantization dither at standstill.", "(1,5x Linearmaßstab-Auflösung), um Zitterbewegungen im Stillstand zu verhindern."),
+            ("Reset FF0 to 0.0 (position feedforward must be 0 on linear axes; velocity-mode servos use FF1 and FF2).", "FF0 auf 0.0 zurückgesetzt (Positionsvorsteuerung muss bei Linearachsen 0 sein; Drehzahlregler nutzen FF1 und FF2)."),
+            ("Cruise following error averaged", "Mittlerer Schleppfehler bei Konstantfahrt:"),
+            ("at ", "bei "),
+            ("Updated FF1", "FF1 angepasst"),
+            ("so the velocity command matches axis speed directly.", "damit die Sollgeschwindigkeit direkt zur Achsgeschwindigkeit passt."),
+            ("Detected directional asymmetry", "Richtungsasymmetrie erkannt"),
+            ("between + and - moves", "zwischen Vor- und Rückfahrt"),
+            ("Adjusted bias", "Bias angepasst"),
+            ("to counter constant load/gravity.", "zur Kompensation konstanter Last / Schwerkraft."),
+            ("Raised Pgain", "Pgain erhöht"),
+            ("to tighten position tracking.", "für steifere Positionsführung."),
+            ("Refined FF1", "FF1 nachjustiert"),
+            ("to zero out", "zur Beseitigung von"),
+            ("residual cruise lag.", "Restschleppfehler bei Konstantfahrt."),
+            ("Accel/Decel transient lag averaged", "Verzögerung bei Beschleunigung/Bremsung gemessen bei"),
+            ("Updated FF2", "FF2 angepasst"),
+            ("to pre-compensate servo velocity-loop lag and eliminate braking overshoot.", "zur Vorkompensation der Geschwindigkeits-Regelverzögerung (verhindert Bremsüberschwinger)."),
+            ("Refined bias", "Bias nachjustiert"),
+            ("for symmetric tracking.", "für symmetrische Bahnführung."),
+            ("Output chatter is low", "Reglerrauschen ist gering"),
+            ("Increased Pgain", "Pgain erhöht"),
+            ("to reduce reversal spikes and increase stiffness.", "zur Verringerung von Umkehrspitzen und für höhere Steifigkeit."),
+            ("Added light Dgain", "Leichten D-Anteil hinzugefügt"),
+            ("to damp", "zur Dämpfung von"),
+            ("settling overshoot without amplifying scale quantization.", "Überschwingern, ohne Maßstabsrauschen zu verstärken."),
+            ("Micro-trimmed FF1", "FF1 feinjustiert"),
+            ("cruise accuracy.", "Genauigkeit bei Konstantfahrt."),
+            ("Micro-trimmed FF2", "FF2 feinjustiert"),
+            ("ramp accuracy.", "Genauigkeit während Beschleunigungsrampen."),
+            ("Added conservative Igain", "Konservativen I-Anteil hinzugefügt"),
+            ("with maxerrorI=", "mit Begrenzung maxerrorI="),
+            ("to eliminate standstill residual error safely.", "zur sicheren Beseitigung statischer Schleppfehler im Stillstand."),
+            ("Axis is converged", "Achse ist optimal eingestellt"),
+            ("Ready to save to .INI!", "Bereit zur Speicherung in der .INI-Datei!"),
+            ("Drive saturated for", "Antrieb in Sättigung für"),
+            ("of the move", "der Verfahrzeit"),
+            ("Consider lowering feedrate/acceleration or checking OUTPUT_SCALE.", "Vorschub/Beschleunigung reduzieren oder OUTPUT_SCALE prüfen."),
+        ]
+        out = line
+        for en_sub, tr_sub in replacements:
+            out = out.replace(en_sub, tr_sub)
+        return out
+    return line
