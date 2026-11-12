@@ -217,6 +217,32 @@ BIAS = 0.0
         finally:
             root.destroy()
 
+    def test_gcode_live_updates_on_edit_and_flip(self) -> None:
+        """Verify editing travel, start_pos, feed, or flipping direction updates G-code preview safely."""
+        import tkinter as tk
+        from lcnc_pid_tuner.gui import PIDAutoTunerGUI
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = PIDAutoTunerGUI(root, force_sim=True, default_lang="en")
+
+            # Simulate typing intermediate '-' then '-15'
+            app.travel_var.set("-")
+            app.travel_var.set("-15")
+            app.start_pos_var.set("10")
+            app.feed_var.set("900")
+            gcode = app.gcode_text.get("1.0", tk.END)
+            self.assertIn("G0 X10.0000", gcode)
+            self.assertIn("G1 X-5.0000 F900.0", gcode)
+
+            # Flip direction -> +15 from 10 = 25
+            app.flip_travel_direction()
+            gcode_flipped = app.gcode_text.get("1.0", tk.END)
+            self.assertIn("G1 X25.0000 F900.0", gcode_flipped)
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

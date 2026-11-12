@@ -86,11 +86,11 @@ class PIDAutoTunerGUI:
         self.lang_display_var = tk.StringVar(value=SUPPORTED_LANGUAGES[self.lang])
         self.axis_var = tk.StringVar(value="X")
         self.sim_mode_var = tk.BooleanVar(value=not self.backend.is_live_linuxcnc)
-        self.start_pos_var = tk.DoubleVar(value=0.0)
-        self.travel_var = tk.DoubleVar(value=30.0)
-        self.feed_var = tk.DoubleVar(value=1500.0)
-        self.accel_var = tk.DoubleVar(value=250.0)
-        self.dwell_var = tk.DoubleVar(value=0.35)
+        self.start_pos_var = tk.StringVar(value="0.0")
+        self.travel_var = tk.StringVar(value="30.0")
+        self.feed_var = tk.StringVar(value="1500.0")
+        self.accel_var = tk.StringVar(value="250.0")
+        self.dwell_var = tk.StringVar(value="0.35")
         self.status_var = tk.StringVar(value="")
 
         self.current_param_vars: Dict[str, tk.StringVar] = {}
@@ -138,6 +138,14 @@ class PIDAutoTunerGUI:
         self._configure_styles()
         self._build_menubar()
         self._build_layout()
+        for mv in (
+            self.start_pos_var,
+            self.travel_var,
+            self.feed_var,
+            self.accel_var,
+            self.dwell_var,
+        ):
+            mv.trace_add("write", lambda *_args: self._update_gcode_preview())
         self._on_axis_changed()
 
     def _t(self, key: str, **kwargs: object) -> str:
@@ -195,144 +203,80 @@ class PIDAutoTunerGUI:
         self.root.config(menu=self.menubar)
 
     def _build_layout(self) -> None:
-        # 1. Top Control Toolbar
+        # 1. Top Control Toolbar (2 rows so buttons are never clipped on narrow screens)
         self.top_frame = ttk.LabelFrame(
-            self.root, text=self._t("step1_frame"), padding=8
+            self.root, text=self._t("step1_frame"), padding=6
         )
         self.top_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 4))
 
-        # Axis selector
+        top_row1 = ttk.Frame(self.top_frame)
+        top_row1.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
+
+        top_row2 = ttk.Frame(self.top_frame)
+        top_row2.pack(side=tk.TOP, fill=tk.X)
+
+        # Row 1 Left: Axis & Motion Parameters
         ttk.Label(
-            self.top_frame,
+            top_row1,
             textvariable=self.ui_str["axis_label"],
             font=("Segoe UI", 10, "bold"),
         ).pack(side=tk.LEFT, padx=(2, 3))
         axis_cb = ttk.Combobox(
-            self.top_frame,
+            top_row1,
             textvariable=self.axis_var,
             values=["X", "Y", "Z", "A"],
             width=3,
             state="readonly",
             font=("Segoe UI", 10, "bold"),
         )
-        axis_cb.pack(side=tk.LEFT, padx=(0, 6))
+        axis_cb.pack(side=tk.LEFT, padx=(0, 8))
         axis_cb.bind("<<ComboboxSelected>>", lambda _e: self._on_axis_changed())
 
         # Start position + Read Current Position button
-        ttk.Label(self.top_frame, textvariable=self.ui_str["start_label"]).pack(
+        ttk.Label(top_row1, textvariable=self.ui_str["start_label"]).pack(
             side=tk.LEFT, padx=(2, 2)
         )
         start_entry = ttk.Entry(
-            self.top_frame, textvariable=self.start_pos_var, width=6
+            top_row1, textvariable=self.start_pos_var, width=7
         )
-        start_entry.pack(side=tk.LEFT, padx=(0, 2))
-        start_entry.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
+        start_entry.pack(side=tk.LEFT, padx=(0, 3))
 
         ttk.Button(
-            self.top_frame,
+            top_row1,
             textvariable=self.ui_str["btn_read_pos"],
-            width=9,
             command=self.read_current_axis_pos,
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        ).pack(side=tk.LEFT, padx=(0, 10))
 
         # Travel distance + Flip Direction button
-        ttk.Label(self.top_frame, textvariable=self.ui_str["travel_label"]).pack(
+        ttk.Label(top_row1, textvariable=self.ui_str["travel_label"]).pack(
             side=tk.LEFT, padx=(2, 2)
         )
         travel_entry = ttk.Entry(
-            self.top_frame, textvariable=self.travel_var, width=6
+            top_row1, textvariable=self.travel_var, width=7
         )
-        travel_entry.pack(side=tk.LEFT, padx=(0, 2))
-        travel_entry.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
+        travel_entry.pack(side=tk.LEFT, padx=(0, 3))
 
         ttk.Button(
-            self.top_frame,
+            top_row1,
             textvariable=self.ui_str["btn_flip"],
-            width=8,
             command=self.flip_travel_direction,
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        ).pack(side=tk.LEFT, padx=(0, 10))
 
         # Feed, Accel, Dwell
         for str_key, var, width in [
-            ("feed_label", self.feed_var, 6),
-            ("accel_label", self.accel_var, 5),
-            ("dwell_label", self.dwell_var, 4),
+            ("feed_label", self.feed_var, 7),
+            ("accel_label", self.accel_var, 6),
+            ("dwell_label", self.dwell_var, 5),
         ]:
-            ttk.Label(self.top_frame, textvariable=self.ui_str[str_key]).pack(
+            ttk.Label(top_row1, textvariable=self.ui_str[str_key]).pack(
                 side=tk.LEFT, padx=(2, 2)
             )
-            ent = ttk.Entry(self.top_frame, textvariable=var, width=width)
-            ent.pack(side=tk.LEFT, padx=(0, 5))
-            ent.bind("<KeyRelease>", lambda _e: self._update_gcode_preview())
+            ent = ttk.Entry(top_row1, textvariable=var, width=width)
+            ent.pack(side=tk.LEFT, padx=(0, 8))
 
-        ttk.Separator(self.top_frame, orient=tk.VERTICAL).pack(
-            side=tk.LEFT, fill=tk.Y, padx=6
-        )
-
-        # Primary Workflow Buttons
-        self.btn_run = tk.Button(
-            self.top_frame,
-            textvariable=self.ui_str["btn_run_test"],
-            bg="#2563eb",
-            fg="white",
-            activebackground="#1d4ed8",
-            activeforeground="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=4,
-            relief=tk.FLAT,
-            command=self.run_single_test,
-        )
-        self.btn_run.pack(side=tk.LEFT, padx=3)
-
-        self.btn_apply_run = tk.Button(
-            self.top_frame,
-            textvariable=self.ui_str["btn_apply_retest"],
-            bg="#059669",
-            fg="white",
-            activebackground="#047857",
-            activeforeground="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=4,
-            relief=tk.FLAT,
-            command=self.apply_suggested_and_retest,
-        )
-        self.btn_apply_run.pack(side=tk.LEFT, padx=3)
-
-        self.btn_auto = tk.Button(
-            self.top_frame,
-            textvariable=self.ui_str["btn_autotune"],
-            bg="#7c3aed",
-            fg="white",
-            activebackground="#6d28d9",
-            activeforeground="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=8,
-            pady=4,
-            relief=tk.FLAT,
-            command=lambda: self.run_auto_sequence(steps=5),
-        )
-        self.btn_auto.pack(side=tk.LEFT, padx=3)
-
-        self.btn_stop = tk.Button(
-            self.top_frame,
-            textvariable=self.ui_str["btn_stop"],
-            bg="#dc2626",
-            fg="white",
-            activebackground="#b91c1c",
-            activeforeground="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=8,
-            pady=4,
-            relief=tk.FLAT,
-            command=self.backend.abort_motion,
-        )
-        self.btn_stop.pack(side=tk.LEFT, padx=3)
-
-        # Right side: Language selector & Simulation toggle
+        # Row 1 Right: Language selector & Simulation toggle
         lang_cb = ttk.Combobox(
-            self.top_frame,
+            top_row1,
             textvariable=self.lang_display_var,
             values=list(SUPPORTED_LANGUAGES.values()),
             width=9,
@@ -340,17 +284,78 @@ class PIDAutoTunerGUI:
         )
         lang_cb.pack(side=tk.RIGHT, padx=(2, 4))
         lang_cb.bind("<<ComboboxSelected>>", self._on_lang_combo_selected)
-        ttk.Label(self.top_frame, textvariable=self.ui_str["lang_label"]).pack(
-            side=tk.RIGHT, padx=(4, 2)
+        ttk.Label(top_row1, textvariable=self.ui_str["lang_label"]).pack(
+            side=tk.RIGHT, padx=(6, 2)
         )
 
         sim_chk = ttk.Checkbutton(
-            self.top_frame,
+            top_row1,
             textvariable=self.ui_str["chk_sim_mode"],
             variable=self.sim_mode_var,
             command=self._on_sim_mode_toggled,
         )
-        sim_chk.pack(side=tk.RIGHT, padx=4)
+        sim_chk.pack(side=tk.RIGHT, padx=6)
+
+        # Row 2: Primary Workflow Action Buttons
+        self.btn_run = tk.Button(
+            top_row2,
+            textvariable=self.ui_str["btn_run_test"],
+            bg="#2563eb",
+            fg="white",
+            activebackground="#1d4ed8",
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=4,
+            relief=tk.FLAT,
+            command=self.run_single_test,
+        )
+        self.btn_run.pack(side=tk.LEFT, padx=(2, 4))
+
+        self.btn_apply_run = tk.Button(
+            top_row2,
+            textvariable=self.ui_str["btn_apply_retest"],
+            bg="#059669",
+            fg="white",
+            activebackground="#047857",
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=4,
+            relief=tk.FLAT,
+            command=self.apply_suggested_and_retest,
+        )
+        self.btn_apply_run.pack(side=tk.LEFT, padx=4)
+
+        self.btn_auto = tk.Button(
+            top_row2,
+            textvariable=self.ui_str["btn_autotune"],
+            bg="#7c3aed",
+            fg="white",
+            activebackground="#6d28d9",
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=4,
+            relief=tk.FLAT,
+            command=lambda: self.run_auto_sequence(steps=5),
+        )
+        self.btn_auto.pack(side=tk.LEFT, padx=4)
+
+        self.btn_stop = tk.Button(
+            top_row2,
+            textvariable=self.ui_str["btn_stop"],
+            bg="#dc2626",
+            fg="white",
+            activebackground="#b91c1c",
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=4,
+            relief=tk.FLAT,
+            command=self.backend.abort_motion,
+        )
+        self.btn_stop.pack(side=tk.LEFT, padx=4)
 
         # 2. Main Split Area
         main_paned = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
@@ -731,7 +736,7 @@ class PIDAutoTunerGUI:
         self._set_active_params_ui(params)
         if self.backend.is_live_linuxcnc:
             cur_pos = self.backend.read_current_position(axis)
-            self.start_pos_var.set(cur_pos)
+            self.start_pos_var.set(f"{cur_pos:g}")
         for key, _ in PARAM_KEYS:
             self.suggested_param_vars[key].set("—")
             self.delta_param_vars[key].set("")
@@ -745,45 +750,51 @@ class PIDAutoTunerGUI:
         """Read current live axis coordinate from LinuxCNC into Start (mm)."""
         axis = self.axis_var.get().upper()
         pos = self.backend.read_current_position(axis)
-        self.start_pos_var.set(pos)
+        self.start_pos_var.set(f"{pos:g}")
         self._update_gcode_preview()
         self.status_var.set(self._t("status_read_pos", axis=axis, pos=pos))
 
     def flip_travel_direction(self) -> None:
         """Invert the sign of Travel (mm) so the move goes in the opposite direction."""
-        try:
-            cur_travel = float(self.travel_var.get())
-            self.travel_var.set(-cur_travel)
-            self._update_gcode_preview()
-            start = float(self.start_pos_var.get())
-            self.status_var.set(
-                self._t(
-                    "status_flipped",
-                    start=start,
-                    end=start - cur_travel,
-                )
+        cur_travel = self._parse_float(self.travel_var.get(), 30.0)
+        new_travel = -cur_travel
+        self.travel_var.set(f"{new_travel:g}")
+        self._update_gcode_preview()
+        start = self._parse_float(self.start_pos_var.get(), 0.0)
+        self.status_var.set(
+            self._t(
+                "status_flipped",
+                start=start,
+                end=start + new_travel,
             )
-        except ValueError:
-            pass
+        )
+
+    @staticmethod
+    def _parse_float(raw: object, default: float) -> float:
+        """Safely parse numeric entry text (handles empty, '-', or comma decimals)."""
+        try:
+            s = str(raw).strip().replace(",", ".")
+            if s in ("", "-", "+", "."):
+                return default
+            return float(s)
+        except (ValueError, tk.TclError):
+            return default
 
     def _get_motion_config(self) -> MotionConfig:
         axis = self.axis_var.get().upper()
-        try:
-            start_p = float(self.start_pos_var.get())
-        except ValueError:
-            start_p = 0.0
-        try:
-            travel_d = float(self.travel_var.get())
-        except ValueError:
-            travel_d = 20.0
+        start_p = self._parse_float(self.start_pos_var.get(), 0.0)
+        travel_d = self._parse_float(self.travel_var.get(), 30.0)
+        feed = max(1.0, self._parse_float(self.feed_var.get(), 1500.0))
+        accel = max(1.0, self._parse_float(self.accel_var.get(), 250.0))
+        dwell = max(0.05, self._parse_float(self.dwell_var.get(), 0.35))
         return MotionConfig(
             axis_letter=axis,
             joint_index=AXIS_TO_JOINT.get(axis, 0),
             start_pos=start_p,
             travel_distance=travel_d,
-            cruise_feedrate=float(self.feed_var.get()),
-            max_acceleration=float(self.accel_var.get()),
-            dwell_time=float(self.dwell_var.get()),
+            cruise_feedrate=feed,
+            max_acceleration=accel,
+            dwell_time=dwell,
         )
 
     def _get_active_params_from_ui(self) -> PIDParams:
@@ -841,7 +852,7 @@ class PIDAutoTunerGUI:
                     "dlg_soft_limit_ask", msg=limit_msg, safe_travel=safe_travel
                 ),
             ):
-                self.travel_var.set(safe_travel)
+                self.travel_var.set(f"{safe_travel:g}")
                 cfg = self._get_motion_config()
             else:
                 self.status_var.set(f"Aborted: {limit_msg}")
