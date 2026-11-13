@@ -27,8 +27,12 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from lcnc_pid_tuner.gui import launch_gui
-from lcnc_pid_tuner.mcp_server import run_mcp_http, run_mcp_stdio
+
+def _valid_port(value: str) -> int:
+    port = int(value)
+    if port < 1 or port > 65535:
+        raise argparse.ArgumentTypeError(f"Port must be between 1 and 65535 (got {port}).")
+    return port
 
 
 def main() -> None:
@@ -46,12 +50,13 @@ def main() -> None:
         default="fr",
         help="Initial interface language ('fr' for Français, 'en' for English, 'de' for Deutsch).",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--mcp",
         action="store_true",
         help="Run as a Model Context Protocol (MCP) stdio JSON-RPC server for AI integration.",
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--mcp-http",
         action="store_true",
         help="Run as an HTTP JSON-RPC MCP server for remote/LAN AI integration.",
@@ -63,17 +68,23 @@ def main() -> None:
     )
     parser.add_argument(
         "--port",
-        type=int,
+        type=_valid_port,
         default=8765,
         help="Port for --mcp-http (default: 8765).",
     )
     args = parser.parse_args()
 
     if args.mcp:
+        from lcnc_pid_tuner.mcp_server import run_mcp_stdio
+
         run_mcp_stdio(force_sim=args.sim)
     elif args.mcp_http:
+        from lcnc_pid_tuner.mcp_server import run_mcp_http
+
         run_mcp_http(host=args.host, port=args.port, force_sim=args.sim)
     else:
+        from lcnc_pid_tuner.gui import launch_gui
+
         launch_gui(force_sim=args.sim, default_lang=args.lang)
 
 

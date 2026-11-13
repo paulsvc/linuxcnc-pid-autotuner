@@ -28,6 +28,8 @@ from .validator import validate_pid_params
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "linuxcnc-pid-autotuner"
 SERVER_VERSION = "1.0.0"
+VALID_AXES = ("X", "Y", "Z", "A")
+MAX_HTTP_BODY_BYTES = 1_048_576
 
 
 class PIDTunerMCPServer:
@@ -241,11 +243,18 @@ class PIDTunerMCPServer:
             },
         ]
 
+    @staticmethod
+    def _validate_axis(raw_axis: Any) -> str:
+        axis = str(raw_axis or "X").upper().strip()
+        if axis not in VALID_AXES:
+            raise ValueError(f"Invalid axis '{raw_axis}'. Expected one of {VALID_AXES}.")
+        return axis
+
     # ------------------------------------------------------------------
     # Tool Implementations
     # ------------------------------------------------------------------
     def _tool_get_axis_params(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        axis = str(args.get("axis", "X")).upper()
+        axis = self._validate_axis(args.get("axis", "X"))
         params = self.backend.read_pid_params(axis)
         min_lim, max_lim = self.backend.read_axis_limits(axis)
         cur_pos = self.backend.read_current_position(axis)
@@ -387,6 +396,7 @@ class PIDTunerMCPServer:
         }
 
         if not val_res.valid:
+            response["error"] = "validation_failed"
             response["message"] = (
                 "Validation failed; parameters were NOT applied to HAL."
             )
@@ -396,14 +406,20 @@ class PIDTunerMCPServer:
             ok, msg = self.backend.write_pid_params(axis, val_res.validated_params)
             response["applied"] = ok
             response["apply_message"] = msg
+            if not ok:
+                response["error"] = "hal_write_failed"
 
             if ok and run_test_after:
                 test_res = self._tool_run_tuning_test(
                     {
                         "axis": axis,
+                        "start_pos": args.get("start_pos"),
                         "travel_distance": args.get("travel_distance", 30.0),
                         "cruise_feedrate": args.get("cruise_feedrate", 1500.0),
                         "max_acceleration": args.get("max_acceleration", 250.0),
+                        "dwell_time": args.get("dwell_time", 0.35),
+                        "include_trace": args.get("include_trace", True),
+                        "trace_max_points": args.get("trace_max_points", 120),
                     }
                 )
                 response["verification_test"] = test_res
@@ -473,21 +489,46 @@ class PIDTunerMCPServer:
         if uri == "lcnc://session/history":
             return json.dumps(self._tool_get_tuning_history({}), indent=2)
         if uri.startswith("lcnc://axis/") and uri.endswith("/params"):
-            ax = uri.split("/")[3].upper()
-            return json.dumps(self._tool_get_axis_params({"axis": ax}), indent=2)
-        raise ValueError(f"Unknown resource URI: {uri}")
+            parts = uri.split("/")
+            if len(parts) == 5:
+                ax = self._validate_axis(parts[3])
+                return json.dumps(self._tool_get_axis_params({"axis": ax}), indent=2)
+        raise KeyError(f"Unknown resource URI: {uri}")
 
     # ------------------------------------------------------------------
     # JSON-RPC 2.0 Dispatcher
     # ------------------------------------------------------------------
-    def handle_request(self, req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def handle_request(self, req: Any) -> Optional[Dict[str, Any]]:
         """Process a single JSON-RPC 2.0 message and return response dict (or None for notifications)."""
-        req_id = req.get("id")
-        method = req.get("method", "")
-        params = req.get("params") or {}
+        if not isinstance(req, dict):
+            return self._error_response(None, -32600, "Invalid Request: expected JSON object.")
 
-        # Notifications have no id and expect no response
-        if method.startswith("notifications/") and req_id is None:
+        has_id = "id" in req
+        req_id = req.get("id")
+
+        if req.get("jsonrpc") != "2.0":
+            if not has_id:
+                return None
+            return self._error_response(req_id, -32600, "Invalid Request: 'jsonrpc' must be '2.0'.")
+
+        method = req.get("method")
+        if not isinstance(method, str) or not method:
+            if not has_id:
+                return None
+            return self._error_response(req_id, -32600, "Invalid Request: 'method' must be a non-empty string.")
+
+        raw_params = req.get("params")
+        if raw_params is None:
+            params: Dict[str, Any] = {}
+        elif isinstance(raw_params, dict):
+            params = raw_params
+        else:
+            if not has_id:
+                return None
+            return self._error_response(req_id, -32602, "Invalid params: expected JSON object.")
+
+        # Notifications have no 'id' key and expect no response
+        if not has_id and method.startswith("notifications/"):
             return None
 
         try:
@@ -509,13 +550,32 @@ class PIDTunerMCPServer:
                 result = {"tools": self.list_tools()}
             elif method == "tools/call":
                 tool_name = params.get("name", "")
-                tool_args = params.get("arguments") or {}
+                tool_args = params.get("arguments")
+                if tool_args is None:
+                    tool_args = {}
+                if not isinstance(tool_args, dict):
+                    return self._error_response(
+                        req_id, -32602, "Invalid params: 'arguments' must be an object."
+                    )
                 handler = self._tool_handlers.get(tool_name)
                 if handler is None:
                     return self._error_response(
-                        req_id, -32601, f"Unknown tool: {tool_name}"
+                        req_id, -32602, f"Unknown tool: {tool_name}"
                     )
-                tool_output = handler(tool_args)
+                try:
+                    tool_output = handler(tool_args)
+                except (ValueError, TypeError) as arg_err:
+                    return self._error_response(
+                        req_id, -32602, f"Invalid tool arguments: {arg_err}"
+                    )
+                has_err = bool(
+                    "error" in tool_output
+                    or tool_output.get("saved") is False
+                    or (
+                        "validation" in tool_output
+                        and not tool_output["validation"].get("valid", True)
+                    )
+                )
                 result = {
                     "content": [
                         {
@@ -523,13 +583,20 @@ class PIDTunerMCPServer:
                             "text": json.dumps(tool_output, indent=2),
                         }
                     ],
-                    "isError": bool("error" in tool_output and tool_output.get("applied") is not True),
+                    "isError": has_err,
                 }
             elif method == "resources/list":
                 result = {"resources": self.list_resources()}
             elif method == "resources/read":
                 uri = params.get("uri", "")
-                text = self.read_resource(uri)
+                if not isinstance(uri, str) or not uri:
+                    return self._error_response(
+                        req_id, -32602, "Invalid params: 'uri' must be a non-empty string."
+                    )
+                try:
+                    text = self.read_resource(uri)
+                except (KeyError, ValueError) as res_err:
+                    return self._error_response(req_id, -32002, str(res_err))
                 result = {
                     "contents": [
                         {
@@ -540,17 +607,17 @@ class PIDTunerMCPServer:
                     ]
                 }
             else:
-                if req_id is None:
+                if not has_id:
                     return None
                 return self._error_response(
                     req_id, -32601, f"Method not found: {method}"
                 )
 
-            if req_id is None:
+            if not has_id:
                 return None
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
         except Exception as exc:
-            if req_id is None:
+            if not has_id:
                 return None
             return self._error_response(req_id, -32603, str(exc))
 
@@ -586,7 +653,10 @@ class PIDTunerMCPServer:
                 fout.flush()
                 continue
 
-            resp = self.handle_request(req)
+            try:
+                resp = self.handle_request(req)
+            except Exception as exc:
+                resp = self._error_response(None, -32603, f"Internal error: {exc}")
             if resp is not None:
                 fout.write(json.dumps(resp) + "\n")
                 fout.flush()
@@ -596,24 +666,63 @@ class PIDTunerMCPServer:
         mcp_instance = self
 
         class MCPHttpHandler(BaseHTTPRequestHandler):
+            def _send_json(self, status: int, data: Optional[Dict[str, Any]]) -> None:
+                payload = json.dumps(data).encode("utf-8") if data is not None else b""
+                self.send_response(status)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                if data is not None:
+                    self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                if payload:
+                    self.wfile.write(payload)
+
+            def do_OPTIONS(self) -> None:
+                self._send_json(204, None)
+
+            def do_GET(self) -> None:
+                if self.path in ("/", "/health", "/mcp"):
+                    self._send_json(
+                        200,
+                        {
+                            "status": "ok",
+                            "server": SERVER_NAME,
+                            "version": SERVER_VERSION,
+                            "protocol": MCP_PROTOCOL_VERSION,
+                        },
+                    )
+                else:
+                    self._send_json(404, {"error": "Not found"})
+
             def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", "0"))
+                if self.path not in ("/", "/mcp"):
+                    self._send_json(404, {"error": "Use POST /mcp"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self._send_json(400, mcp_instance._error_response(None, -32700, "Invalid Content-Length"))
+                    return
+                if length < 0 or length > MAX_HTTP_BODY_BYTES:
+                    self._send_json(413, mcp_instance._error_response(None, -32600, "Body too large or negative Content-Length"))
+                    return
+
                 body = self.rfile.read(length).decode("utf-8", errors="replace")
                 try:
                     req = json.loads(body)
-                    resp = mcp_instance.handle_request(req)
-                except Exception as exc:
-                    resp = mcp_instance._error_response(None, -32700, str(exc))
+                except json.JSONDecodeError as exc:
+                    self._send_json(400, mcp_instance._error_response(None, -32700, f"Parse error: {exc}"))
+                    return
 
-                payload = json.dumps(resp or {}).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                resp = mcp_instance.handle_request(req)
+                if resp is None:
+                    self._send_json(202, None)
+                else:
+                    self._send_json(200, resp)
 
             def log_message(self, format: str, *args: object) -> None:
-                # Keep stdout/stderr clean unless needed
                 pass
 
         server = ThreadingHTTPServer((host, port), MCPHttpHandler)
@@ -624,7 +733,9 @@ class PIDTunerMCPServer:
         try:
             server.serve_forever()
         except KeyboardInterrupt:
-            server.shutdown()
+            pass
+        finally:
+            server.server_close()
 
 
 def run_mcp_stdio(force_sim: bool = False) -> None:

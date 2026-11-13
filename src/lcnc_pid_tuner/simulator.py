@@ -121,15 +121,16 @@ def simulate_axis_run(
         else:
             pid_err = raw_err + params.deadband
 
-        # 4. Integrator with maxerrorI clamp & anti-windup
+        # 4. Integrator with maxerrorI clamp (anti-windup freezes integration if saturated)
+        next_integrator_err = integrator_err
         if params.I > 0.0:
-            integrator_err += pid_err * dt
+            next_integrator_err += pid_err * dt
             if params.maxerrorI > 0.0:
-                integrator_err = float(
-                    np.clip(integrator_err, -params.maxerrorI, params.maxerrorI)
+                next_integrator_err = float(
+                    np.clip(next_integrator_err, -params.maxerrorI, params.maxerrorI)
                 )
         else:
-            integrator_err = 0.0
+            next_integrator_err = 0.0
 
         # 5. Derivative term: LinuxCNC pid uses (command_deriv - feedback_deriv)
         err_deriv = vel_cmd[i] - vel_fb[i]
@@ -142,28 +143,30 @@ def simulate_axis_run(
         )
         u_fb = (
             params.P * pid_err
-            + params.I * integrator_err
+            + params.I * next_integrator_err
             + params.D * err_deriv
         )
         u_raw = params.bias + u_ff + u_fb
 
-        # 7. Output saturation check (maxoutput)
-        max_out = max(0.5, params.maxoutput)
-        if abs(u_raw) >= max_out:
-            u_cmd = float(np.clip(u_raw, -max_out, max_out))
+        # 7. Output saturation check (maxoutput == 0 disables limiting in LinuxCNC pid)
+        if params.maxoutput > 0.0 and abs(u_raw) >= params.maxoutput:
+            u_cmd = float(np.clip(u_raw, -params.maxoutput, params.maxoutput))
             saturated[i] = 1.0
+            # Freeze integrator on saturation (LinuxCNC pid.c anti-windup)
         else:
             u_cmd = float(u_raw)
             saturated[i] = 0.0
+            integrator_err = next_integrator_err
 
         pid_output[i] = u_cmd
 
         # 8. Advance physical servo drive + mechanical compliance (sub-stepped 8x for accuracy)
         sub_steps = 8
         dt_sub = dt / sub_steps
+        noise_std = 0.001 / np.sqrt(sub_steps)
         for _ in range(sub_steps):
             v_target = kv * (
-                u_cmd + plant.gravity_bias_output + rng.normal(0.0, 0.001)
+                u_cmd + plant.gravity_bias_output + rng.normal(0.0, noise_std)
             )
             motor_acc = (v_target - motor_vel) / tau_v
             motor_vel += motor_acc * dt_sub

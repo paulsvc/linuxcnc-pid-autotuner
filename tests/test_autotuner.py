@@ -379,6 +379,68 @@ BIAS = 0.0
         self.assertGreater(len(samples), 0)
         self.assertTrue(all("Cruise" in s["phase"] for s in samples))
 
+    def test_hardening_validator_simulator_and_mcp_errors(self) -> None:
+        """Verify hardened validator step-jumps, maxoutput=0, G94, and MCP error flags."""
+        from lcnc_pid_tuner.gcode_gen import generate_mdi_commands, generate_tuning_gcode
+        from lcnc_pid_tuner.mcp_server import PIDTunerMCPServer
+        from lcnc_pid_tuner.simulator import simulate_axis_run
+        from lcnc_pid_tuner.validator import validate_pid_params
+
+        # 1. Validator step-jump from 0 and consistency warnings
+        cur_zero = PIDParams(P=0.0, I=0.0, D=0.0, FF1=0.0, FF2=0.0)
+        res_jump0 = validate_pid_params({"P": 250.0}, current=cur_zero, strict_step_limit=True)
+        self.assertFalse(res_jump0.valid)
+        self.assertEqual(res_jump0.changes, {})
+
+        res_warn = validate_pid_params({"P": 0.0, "I": 5.0, "maxerrorI": 0.0}, current=cur_zero)
+        self.assertTrue(res_warn.valid)
+        self.assertTrue(any("P=0" in w for w in res_warn.warnings))
+        self.assertTrue(any("maxerrorI=0.0" in w for w in res_warn.warnings))
+
+        # 2. G94 feedrate mode in generated G-code and MDI
+        cfg = MotionConfig(axis_letter="X", travel_distance=20.0, cruise_feedrate=1200.0)
+        self.assertIn("G94", generate_tuning_gcode(cfg))
+        self.assertTrue(any("G94" in line for line in generate_mdi_commands(cfg)))
+
+        # 3. Simulator maxoutput == 0.0 means unlimited output
+        trace_unlim = simulate_axis_run(
+            cfg, PIDParams(P=20.0, FF1=0.1, maxoutput=0.0)
+        )
+        self.assertGreater(max(abs(v) for v in trace_unlim.pid_output), 0.1)
+
+        # 4. MCP error flags & JSON-RPC validation
+        server = PIDTunerMCPServer(force_sim=True)
+        bad_req = server.handle_request(["not", "a", "dict"])
+        self.assertEqual(bad_req["error"]["code"], -32600)
+
+        bad_params = server.handle_request(
+            {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": "oops"}
+        )
+        self.assertEqual(bad_params["error"]["code"], -32602)
+
+        bad_axis = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {"name": "get_axis_state", "arguments": {"axis": "Q"}},
+            }
+        )
+        self.assertEqual(bad_axis["error"]["code"], -32602)
+
+        bad_apply = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "validate_and_apply_params",
+                    "arguments": {"axis": "X", "params": {"P": -5.0}},
+                },
+            }
+        )
+        self.assertTrue(bad_apply["result"].get("isError"))
+
 
 if __name__ == "__main__":
     unittest.main()

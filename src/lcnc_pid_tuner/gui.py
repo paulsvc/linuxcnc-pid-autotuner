@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -13,6 +15,7 @@ import numpy as np
 import matplotlib
 
 matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
@@ -139,6 +142,7 @@ class PIDAutoTunerGUI:
         self._configure_styles()
         self._build_menubar()
         self._build_layout()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         for mv in (
             self.start_pos_var,
             self.travel_var,
@@ -515,7 +519,12 @@ class PIDAutoTunerGUI:
             relief=tk.SOLID,
             bd=1,
         )
-        self.rationale_text.pack(fill=tk.BOTH, expand=True)
+        r_scroll = ttk.Scrollbar(
+            self.r_frame, orient=tk.VERTICAL, command=self.rationale_text.yview
+        )
+        self.rationale_text.configure(yscrollcommand=r_scroll.set)
+        r_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.rationale_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.rationale_text.insert(tk.END, self._t("rationale_welcome"))
         self.rationale_text.config(state=tk.DISABLED)
 
@@ -604,7 +613,13 @@ class PIDAutoTunerGUI:
         y_scroll = ttk.Scrollbar(
             tree_container, orient=tk.VERTICAL, command=self.history_tree.yview
         )
-        self.history_tree.configure(yscrollcommand=y_scroll.set)
+        x_scroll = ttk.Scrollbar(
+            tree_container, orient=tk.HORIZONTAL, command=self.history_tree.xview
+        )
+        self.history_tree.configure(
+            yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set
+        )
+        x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         y_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -746,6 +761,7 @@ class PIDAutoTunerGUI:
 
     def _on_axis_changed(self) -> None:
         axis = self.axis_var.get().upper()
+        self.comparison_attempt = None
         params = self.backend.read_pid_params(axis)
         self._set_active_params_ui(params)
         if self.backend.is_live_linuxcnc:
@@ -814,10 +830,7 @@ class PIDAutoTunerGUI:
     def _get_active_params_from_ui(self) -> PIDParams:
         vals: Dict[str, float] = {}
         for key, _ in PARAM_KEYS:
-            try:
-                vals[key] = float(self.current_param_vars[key].get())
-            except ValueError:
-                vals[key] = 0.0
+            vals[key] = self._parse_float(self.current_param_vars[key].get(), 0.0)
         return PIDParams.from_dict(vals)
 
     def _set_active_params_ui(self, params: PIDParams) -> None:
@@ -879,12 +892,29 @@ class PIDAutoTunerGUI:
         self.status_var.set(self._t("status_running", axis=cfg.axis_letter))
         self.root.update_idletasks()
 
-        try:
-            trace = self.backend.run_test_and_record(cfg, active_params)
-        except Exception as exc:
+        result_box: Dict[str, object] = {}
+
+        def _worker() -> None:
+            try:
+                result_box["trace"] = self.backend.run_test_and_record(cfg, active_params)
+            except Exception as exc:  # noqa: BLE001
+                result_box["error"] = exc
+
+        worker = threading.Thread(target=_worker, daemon=True)
+        worker.start()
+        while worker.is_alive():
+            try:
+                self.root.update()
+            except tk.TclError:
+                return None
+            time.sleep(0.02)
+
+        if "error" in result_box:
+            exc = result_box["error"]
             messagebox.showerror("LinuxCNC Execution Error", str(exc))
             self.status_var.set(f"Error: {exc}")
             return None
+        trace = result_box["trace"]
 
         kpis = analyze_trace(trace, active_params)
         axis_history = [a for a in self.attempts if a.axis == cfg.axis_letter]
@@ -954,13 +984,39 @@ class PIDAutoTunerGUI:
 
     def run_auto_sequence(self, steps: int = 5) -> None:
         """Automatically run a succession of N test-and-update attempts to see full convergence."""
-        for step_idx in range(steps):
-            if step_idx > 0 or self.current_attempt is not None:
-                self.copy_suggested_to_active()
-            attempt = self.run_single_test()
-            self.root.update()
-            if attempt is None:
-                break
+        self._set_action_buttons_state(tk.DISABLED)
+        try:
+            for step_idx in range(steps):
+                if self.backend._abort_flag.is_set():
+                    break
+                if step_idx > 0 or self.current_attempt is not None:
+                    self.copy_suggested_to_active()
+                attempt = self.run_single_test()
+                self.root.update()
+                if attempt is None or self.backend._abort_flag.is_set():
+                    break
+        finally:
+            self._set_action_buttons_state(tk.NORMAL)
+
+    def _set_action_buttons_state(self, state: str) -> None:
+        for btn_name in ("btn_run", "btn_apply_run", "btn_auto"):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.config(state=state)
+
+    def _on_close(self) -> None:
+        try:
+            self.backend.abort_motion()
+        except Exception:  # noqa: BLE001
+            pass
+        for fig_name in ("scope_fig", "evol_fig"):
+            fig = getattr(self, fig_name, None)
+            if fig is not None:
+                plt.close(fig)
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # UI Panel Updaters

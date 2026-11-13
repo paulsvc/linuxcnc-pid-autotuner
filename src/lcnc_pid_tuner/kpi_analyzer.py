@@ -224,9 +224,24 @@ def analyze_trace(trace: SampleTrace, params: PIDParams) -> KPIResult:
         )
 
     # 8. Drive Output High-Frequency Chatter (D & P instability indicator)
-    if len(trace.pid_output) > 4:
-        hf_diff = np.diff(trace.pid_output, n=2)
-        kpis.output_chatter_rms = float(np.sqrt(np.mean(hf_diff**2)))
+    # Evaluate 2nd difference only inside smooth phases (STANDSTILL and CRUISE)
+    # so intentional FF2 step edges at ACCEL/DECEL boundaries don't trigger false chatter.
+    if len(trace.pid_output) > 6:
+        smooth_chatter_sq: List[np.ndarray] = []
+        for ph_id in (MotionPhase.STANDSTILL, MotionPhase.CRUISE_POS, MotionPhase.CRUISE_NEG):
+            idx_ph = np.where(phases == ph_id)[0]
+            if len(idx_ph) > 10:
+                # Trim 3 samples at boundaries to avoid transition edge effects
+                seg = trace.pid_output[idx_ph[3:-3]]
+                if len(seg) > 4:
+                    hf_seg = np.diff(seg, n=2)
+                    smooth_chatter_sq.append(hf_seg**2)
+        if smooth_chatter_sq:
+            all_sq = np.concatenate(smooth_chatter_sq)
+            kpis.output_chatter_rms = float(np.sqrt(np.mean(all_sq)))
+        else:
+            hf_diff = np.diff(trace.pid_output, n=2)
+            kpis.output_chatter_rms = float(np.sqrt(np.mean(hf_diff**2)))
 
     # 9. Drive Saturation Ratio
     active_motion = phases != MotionPhase.STANDSTILL

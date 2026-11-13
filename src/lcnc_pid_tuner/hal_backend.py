@@ -55,15 +55,24 @@ class LinuxCNCBackend:
         }
 
     def read_current_position(self, axis_letter: str) -> float:
-        """Read current commanded/actual position of the selected axis in mm."""
+        """Read current active work-coordinate position (matching MDI G0/G1) of the selected axis in mm."""
         axis = axis_letter.upper()
         j = AXIS_TO_JOINT.get(axis, 0)
+        axis_idx_map = {"X": 0, "Y": 1, "Z": 2, "A": 3, "B": 4, "C": 5}
+        idx = axis_idx_map.get(axis, j)
         if not self.is_live_linuxcnc:
             return 0.0
         try:
             stat = linuxcnc.stat()
             stat.poll()
-            return round(float(stat.joint[j]["input"]), 4)
+            # Convert machine actual_position into active work coordinates (G54+ / G92 / tool offset)
+            pos_work = (
+                float(stat.actual_position[idx])
+                - float(stat.g5x_offset[idx])
+                - float(stat.g92_offset[idx])
+                - float(stat.tool_offset[idx])
+            )
+            return round(pos_work, 4)
         except Exception:
             return round(self._hal_get(f"joint.{j}.pos-fb", 0.0), 4)
 
@@ -291,6 +300,7 @@ class LinuxCNCBackend:
                 "LinuxCNC machine is not ON (STATE_ON). Please release E-Stop and turn Machine Power ON."
             )
 
+        prev_mode = stat.task_mode
         # Switch to MDI mode
         cmd.mode(linuxcnc.MODE_MDI)
         cmd.wait_complete(2.0)
@@ -308,6 +318,7 @@ class LinuxCNCBackend:
         t0 = time.perf_counter()
 
         def sampler_worker() -> None:
+            worker_stat = linuxcnc.stat()
             dt_target = 1.0 / max(200.0, min(1000.0, config.sample_rate_hz))
             prev_t = 0.0
             prev_fb = 0.0
@@ -315,11 +326,11 @@ class LinuxCNCBackend:
                 loop_start = time.perf_counter()
                 now = loop_start - t0
                 try:
-                    stat.poll()
-                    p_cmd = float(stat.joint[j]["output"])
-                    p_fb = float(stat.joint[j]["input"])
-                    f_err = float(stat.joint[j]["following_error"])
-                    v_cmd = float(stat.joint[j]["velocity"])
+                    worker_stat.poll()
+                    p_cmd = float(worker_stat.joint[j]["output"])
+                    p_fb = float(worker_stat.joint[j]["input"])
+                    f_err = float(worker_stat.joint[j]["ferror_current"])
+                    v_cmd = float(worker_stat.joint[j]["velocity"])
                 except Exception:
                     p_cmd = self._hal_get(f"joint.{j}.pos-cmd")
                     p_fb = self._hal_get(f"joint.{j}.pos-fb")
@@ -331,7 +342,10 @@ class LinuxCNCBackend:
                 prev_fb = p_fb
 
                 u_out = self._hal_get(f"{prefix}.output", 0.0)
-                sat = 1.0 if abs(u_out) >= 0.99 * params.maxoutput else 0.0
+                if params.maxoutput > 0.0:
+                    sat = 1.0 if abs(u_out) >= 0.99 * params.maxoutput else 0.0
+                else:
+                    sat = 0.0
 
                 t_list.append(now)
                 pos_cmd_list.append(p_cmd)
@@ -367,6 +381,11 @@ class LinuxCNCBackend:
         finally:
             stop_sampling.set()
             worker.join(timeout=1.5)
+            try:
+                if prev_mode != linuxcnc.MODE_MDI:
+                    cmd.mode(prev_mode)
+            except Exception:
+                pass
 
         t_arr = np.array(t_list, dtype=float)
         vel_cmd_arr = np.array(vel_cmd_list, dtype=float)
@@ -473,7 +492,14 @@ class LinuxCNCBackend:
         shutil.copy2(ini_file, backup_path)
 
         j = AXIS_TO_JOINT.get(axis_letter.upper(), 0)
-        target_sections = {f"JOINT_{j}", f"AXIS_{axis_letter.upper()}", f"AXIS_{j}"}
+        lines = ini_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+        has_joint_sec = any(
+            line.strip().upper() == f"[JOINT_{j}]" for line in lines
+        )
+        if has_joint_sec:
+            target_sections = {f"JOINT_{j}"}
+        else:
+            target_sections = {f"AXIS_{axis_letter.upper()}", f"AXIS_{j}"}
 
         ini_updates = {
             "P": f"{params.P:.6g}",
@@ -484,9 +510,9 @@ class LinuxCNCBackend:
             "FF2": f"{params.FF2:.6g}",
             "DEADBAND": f"{params.deadband:.6g}",
             "BIAS": f"{params.bias:.6g}",
+            "MAX_ERROR_I": f"{params.maxerrorI:.6g}",
         }
 
-        lines = ini_file.read_text(encoding="utf-8", errors="ignore").splitlines()
         new_lines: List[str] = []
         current_sec = ""
         updated_keys_in_sec: set[str] = set()

@@ -24,6 +24,7 @@ def generate_tuning_gcode(config: MotionConfig) -> str:
         f"(LinuxCNC PID & Feedforward Auto-Tuner Test Cycle - Axis {axis})",
         "G21 (Metric units - mm)",
         "G90 (Absolute distance mode)",
+        "G94 (Units per minute feedrate mode)",
         "G64 P0.001 (Exact path / tight blending for accurate tracking test)",
         f"G0 {axis}{x0:.4f}",
         f"G4 P{dwell:.2f} (Pre-move standstill baseline)",
@@ -45,7 +46,7 @@ def generate_mdi_commands(config: MotionConfig) -> List[str]:
     dwell = config.dwell_time
 
     return [
-        "G21 G90 G64 P0.001",
+        "G21 G90 G94 G64 P0.001",
         f"G0 {axis}{x0:.4f}",
         f"G4 P{dwell:.2f}",
         f"G1 {axis}{x1:.4f} F{feed:.1f}",

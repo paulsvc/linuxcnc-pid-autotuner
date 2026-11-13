@@ -133,57 +133,72 @@ def validate_pid_params(
             f"|bias|={abs(candidate.bias)} exceeds 50% of maxoutput={candidate.maxoutput}."
         )
 
-    # 3. Single-step jump limits relative to current parameters
+    if candidate.P == 0.0 and (candidate.I > 0.0 or candidate.D > 0.0):
+        warnings.append(
+            "P=0.0 while I or D > 0; a position loop normally requires P > 0."
+        )
+
+    if candidate.I > 0.0 and candidate.maxerrorI == 0.0:
+        warnings.append(
+            "I > 0 with maxerrorI=0.0 disables integrator anti-windup clamping in LinuxCNC HAL."
+        )
+
+    if candidate.deadband > 0.05:
+        warnings.append(
+            f"deadband={candidate.deadband} mm is large for linear scale feedback (> 50 um)."
+        )
+
+    # 3. Continuous single-step jump limits relative to current parameters (no threshold gaps)
     if strict_step_limit and current is not None:
-        if current.P >= 5.0 and candidate.P > current.P * 3.0:
+        max_p = max(30.0, current.P * 3.0)
+        if candidate.P > max_p:
             errors.append(
-                f"Step jump too large: P ({current.P} -> {candidate.P}) exceeds 3x single-step limit."
-            )
-        elif candidate.P - current.P > 100.0:
-            errors.append(
-                f"Step jump too large: P increased by +{candidate.P - current.P:.2f} (> +100 max per step)."
+                f"Step jump too large: P ({current.P} -> {candidate.P}) exceeds safe single-step limit ({max_p:.2f})."
             )
 
-        if current.D >= 0.005 and candidate.D > current.D * 5.0:
+        max_d = max(0.05, current.D * 5.0)
+        if candidate.D > max_d:
             errors.append(
-                f"Step jump too large: D ({current.D} -> {candidate.D}) exceeds 5x single-step limit."
-            )
-        elif current.D < 0.001 and candidate.D > 0.05:
-            errors.append(
-                f"Step jump too large: D ({current.D} -> {candidate.D}) from ~0 should not exceed 0.05 in one step."
+                f"Step jump too large: D ({current.D} -> {candidate.D}) exceeds safe single-step limit ({max_d:.4g})."
             )
 
-        if current.I >= 2.0 and candidate.I > current.I * 3.0:
+        max_i = max(25.0, current.I * 3.0)
+        if candidate.I > max_i:
             errors.append(
-                f"Step jump too large: I ({current.I} -> {candidate.I}) exceeds 3x single-step limit."
-            )
-        elif current.I < 0.1 and candidate.I > 50.0:
-            errors.append(
-                f"Step jump too large: I ({current.I} -> {candidate.I}) from 0 should not exceed 50.0 in one step."
+                f"Step jump too large: I ({current.I} -> {candidate.I}) exceeds safe single-step limit ({max_i:.2f})."
             )
 
-        if current.FF1 >= 0.05 and candidate.FF1 > current.FF1 * 2.5:
+        max_ff1 = max(2.0, current.FF1 * 2.5)
+        if candidate.FF1 > max_ff1:
             errors.append(
-                f"Step jump too large: FF1 ({current.FF1} -> {candidate.FF1}) exceeds 2.5x single-step limit."
+                f"Step jump too large: FF1 ({current.FF1} -> {candidate.FF1}) exceeds safe single-step limit ({max_ff1:.4g})."
             )
 
-    # 4. Compute exact parameter diff
+        max_ff2 = max(0.05, current.FF2 * 5.0)
+        if candidate.FF2 > max_ff2:
+            errors.append(
+                f"Step jump too large: FF2 ({current.FF2} -> {candidate.FF2}) exceeds safe single-step limit ({max_ff2:.4g})."
+            )
+
+    # 4. Compute exact parameter diff (only when validation passed)
+    is_valid = len(errors) == 0
     changes: Dict[str, Dict[str, float]] = {}
-    cur_dict = base.to_dict()
-    cand_dict = candidate.to_dict()
-    for k in PARAM_BOUNDS:
-        old_v = cur_dict[k]
-        new_v = cand_dict[k]
-        if abs(new_v - old_v) > 1e-9:
-            changes[k] = {
-                "old": old_v,
-                "new": new_v,
-                "delta": round(new_v - old_v, 6),
-            }
+    if is_valid:
+        cur_dict = base.to_dict()
+        cand_dict = candidate.to_dict()
+        for k in PARAM_BOUNDS:
+            old_v = cur_dict[k]
+            new_v = cand_dict[k]
+            if abs(new_v - old_v) > 1e-9:
+                changes[k] = {
+                    "old": old_v,
+                    "new": new_v,
+                    "delta": round(new_v - old_v, 6),
+                }
 
     return ValidationResult(
-        valid=len(errors) == 0,
-        validated_params=candidate if len(errors) == 0 else base,
+        valid=is_valid,
+        validated_params=candidate if is_valid else base,
         errors=errors,
         warnings=warnings,
         changes=changes,
