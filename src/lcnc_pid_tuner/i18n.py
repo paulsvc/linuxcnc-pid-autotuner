@@ -19,6 +19,10 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "menu_save_ini": "Save Active Parameters to .INI...",
         "menu_export_history": "Export Attempts History (CSV / JSON)...",
         "menu_exit": "Exit",
+        "menu_mcp": "AI / MCP",
+        "menu_mcp_config": "MCP Server Config (JSON)...",
+        "menu_mcp_export": "Copy Params & Results for AI (JSON)",
+        "menu_mcp_import": "Validate & Apply AI Parameters (JSON)...",
         "menu_language": "Language / Langue / Sprache",
         "lang_label": "Language:",
         # Top Toolbar
@@ -143,6 +147,10 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "menu_save_ini": "Enregistrer les paramètres dans .INI...",
         "menu_export_history": "Exporter l'historique des essais (CSV / JSON)...",
         "menu_exit": "Quitter",
+        "menu_mcp": "IA / MCP",
+        "menu_mcp_config": "Configuration Serveur MCP (JSON)...",
+        "menu_mcp_export": "Copier Paramètres & Résultats pour IA (JSON)",
+        "menu_mcp_import": "Valider & Appliquer Paramètres IA (JSON)...",
         "menu_language": "Langue / Language / Sprache",
         "lang_label": "Langue :",
         # Top Toolbar
@@ -267,6 +275,10 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "menu_save_ini": "Aktive Parameter in .INI speichern...",
         "menu_export_history": "Versuchsverlauf exportieren (CSV / JSON)...",
         "menu_exit": "Beenden",
+        "menu_mcp": "KI / MCP",
+        "menu_mcp_config": "MCP-Server-Konfiguration (JSON)...",
+        "menu_mcp_export": "Parameter & KPIs für KI kopieren (JSON)",
+        "menu_mcp_import": "KI-Parameter prüfen & anwenden (JSON)...",
         "menu_language": "Sprache / Language / Langue",
         "lang_label": "Sprache:",
         # Top Toolbar

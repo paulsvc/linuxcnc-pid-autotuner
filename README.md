@@ -55,6 +55,18 @@ python3 main.py
 | **Pompage à l'Arrêt (Crête-à-Crête)** | Pause / Arrêt | Détecte l'oscillation dans le jeu mécanique ; ajuste **`deadband`** & réduit **`Igain`** |
 | **Erreur Statique à l'Arrêt** | Pause / Arrêt | **`Igain`** + **`maxerrorI`** (Limitation anti-windup) |
 
+### 4. Serveur MCP & Validation IA
+Lancez le serveur MCP (zéro dépendance supplémentaire) pour permettre à une IA (Antigravity, Claude, Cursor...) d'analyser les KPIs et de renvoyer des paramètres validés :
+```bash
+# Transport MCP stdio standard :
+python3 main.py --mcp
+
+# Serveur HTTP JSON-RPC (sur le réseau local) :
+python3 main.py --mcp-http --host 0.0.0.0 --port 8765
+```
+* **Outils MCP exposés :** `get_axis_params`, `run_tuning_test`, `validate_and_apply_params`, `get_tuning_history`, `save_params_to_ini`.
+* **Sécurité :** Chaque proposition IA passe par un validateur strict (bornes physiques, détection `NaN`/`Inf`, limite de saut par étape `3x P/I`, `5x D`, `2.5x FF1`). Dans l'interface graphique, utilisez le menu **`IA / MCP`** pour copier la configuration ou coller/valider des paramètres JSON.
+
 ---
 
 ## 🇬🇧 English Version
@@ -108,6 +120,18 @@ python3 main.py --lang en
 | **Standstill Hunting Peak-to-Peak** | Dwell / Standstill | Detects backlash limit-cycling; widens **`deadband`** & reduces **`Igain`** |
 | **Steady-State Error** | Dwell / Standstill | **`Igain`** + **`maxerrorI`** (Anti-windup clamp) |
 
+### 4. MCP Server & AI Parameter Validation
+Run the built-in zero-dependency MCP server so an AI assistant (Antigravity, Claude Desktop, Cursor, etc.) can inspect parameters, run test moves, analyze KPIs, and return validated parameters:
+```bash
+# Standard MCP stdio transport:
+python3 main.py --mcp
+
+# Optional HTTP JSON-RPC server (LAN / remote AI):
+python3 main.py --mcp-http --host 0.0.0.0 --port 8765
+```
+* **MCP Tools:** `get_axis_params`, `run_tuning_test`, `validate_and_apply_params`, `get_tuning_history`, `save_params_to_ini`.
+* **Safety Validation:** All AI-modified parameters are checked against hard physical bounds, finiteness, velocity-servo sanity rules, and single-step jump limits (`3x P/I`, `5x D`, `2.5x FF1`) before touching HAL. You can also use the **`AI / MCP`** menu in the GUI to copy the MCP config or paste/validate AI JSON parameters.
+
 ---
 
 ## 🇩🇪 Deutsche Version
@@ -160,3 +184,15 @@ python3 main.py --lang de
 | **Regelungsrauschen RMS** | Gesamter Zyklus (`pid.output`) | Erkennt Maßstabsquantisierungsrauschen; nimmt **`Dgain` / `Pgain`** zurück |
 | **Stillstand-Pendeln (Spitze-Spitze)** | Pause / Stillstand | Erkennt Schwingen im Umkehrspiel; passt **`deadband`** an & senkt **`Igain`** |
 | **Statischer Schleppfehler** | Pause / Stillstand | **`Igain`** + **`maxerrorI`** (Anti-Windup-Begrenzung) |
+
+### 4. MCP-Server & KI-Parametervalidierung
+Starten Sie den integrierten MCP-Server (ohne zusätzliche Abhängigkeiten), damit eine KI (Antigravity, Claude, Cursor...) Kennzahlen auswerten und geprüfte Parameter zurücksenden kann:
+```bash
+# Standard MCP stdio Transport:
+python3 main.py --mcp
+
+# Optionaler HTTP JSON-RPC Server (LAN):
+python3 main.py --mcp-http --host 0.0.0.0 --port 8765
+```
+* **MCP-Tools:** `get_axis_params`, `run_tuning_test`, `validate_and_apply_params`, `get_tuning_history`, `save_params_to_ini`.
+* **Sicherheitsprüfung:** Alle KI-Vorschläge werden vor der Übernahme in HAL gegen harte Grenzen und maximale Sprunglimits pro Schritt (`3x P/I`, `5x D`, `2.5x FF1`) validiert. Im GUI-Menü **`KI / MCP`** lassen sich zudem Konfiguration und JSON-Parameter direkt kopieren/prüfen.

@@ -33,6 +33,7 @@ from .models import (
     TuningAttempt,
 )
 from .optimizer import PIDAutoOptimizer
+from .validator import validate_pid_params
 
 
 PARAM_KEYS = [
@@ -188,6 +189,19 @@ class PIDAutoTunerGUI:
             label=self._t("menu_exit"), command=self.root.quit
         )
         self.menubar.add_cascade(label=self._t("menu_file"), menu=self.file_menu)
+
+        self.mcp_menu = tk.Menu(self.menubar, tearoff=0)
+        self.mcp_menu.add_command(
+            label=self._t("menu_mcp_config"), command=self.show_mcp_config_dialog
+        )
+        self.mcp_menu.add_command(
+            label=self._t("menu_mcp_export"), command=self.copy_ai_context_json
+        )
+        self.mcp_menu.add_command(
+            label=self._t("menu_mcp_import"),
+            command=self.import_validate_ai_params_dialog,
+        )
+        self.menubar.add_cascade(label=self._t("menu_mcp"), menu=self.mcp_menu)
 
         self.lang_menu = tk.Menu(self.menubar, tearoff=0)
         for code, name in SUPPORTED_LANGUAGES.items():
@@ -1458,6 +1472,143 @@ class PIDAutoTunerGUI:
             self.status_var.set(msg)
         else:
             messagebox.showerror("Save Error", msg)
+
+    # ------------------------------------------------------------------
+    # AI / MCP Integration & Validation Dialogs
+    # ------------------------------------------------------------------
+    def show_mcp_config_dialog(self) -> None:
+        """Display the MCP server configuration JSON for Antigravity / Claude / Cursor."""
+        repo_main = str(Path(__file__).resolve().parent.parent.parent / "main.py")
+        config_json = json.dumps(
+            {
+                "mcpServers": {
+                    "linuxcnc-pid-autotuner": {
+                        "command": "python3",
+                        "args": [repo_main, "--mcp"],
+                    }
+                }
+            },
+            indent=2,
+        )
+
+        win = tk.Toplevel(self.root)
+        win.title(self._t("menu_mcp_config"))
+        win.geometry("620x320")
+
+        ttk.Label(
+            win,
+            text=(
+                "MCP Stdio Command:  python3 main.py --mcp\n"
+                "MCP HTTP Server (LAN):  python3 main.py --mcp-http --host 0.0.0.0 --port 8765"
+            ),
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", padx=10, pady=(10, 6))
+
+        txt = tk.Text(win, height=11, font=("Consolas", 9), bg="#0f172a", fg="#e2e8f0")
+        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        txt.insert(tk.END, config_json)
+        txt.config(state=tk.DISABLED)
+
+        def copy_cfg() -> None:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(config_json)
+            self.status_var.set("Copied MCP server config JSON to clipboard.")
+
+        ttk.Button(win, text="Copy JSON", command=copy_cfg).pack(pady=(4, 10))
+
+    def copy_ai_context_json(self) -> None:
+        """Copy active parameters and latest KPI results as JSON to clipboard for AI."""
+        axis = self.axis_var.get().upper()
+        active_params = self._get_active_params_from_ui()
+        payload = {
+            "axis": axis,
+            "active_params": active_params.to_dict(),
+            "latest_kpis": (
+                self.current_attempt.kpis.to_dict()
+                if self.current_attempt is not None
+                else None
+            ),
+            "history_summary": [
+                {
+                    "attempt_id": a.attempt_id,
+                    "params": a.params.to_dict(),
+                    "ferror_rms_um": round(a.kpis.ferror_rms * 1000.0, 2),
+                    "ferror_max_um": round(a.kpis.ferror_max * 1000.0, 2),
+                    "cruise_lag_um": round(a.kpis.cruise_error_mean * 1000.0, 2),
+                    "accel_spike_um": round(a.kpis.accel_peak_error * 1000.0, 2),
+                    "overall_score": a.kpis.overall_score,
+                }
+                for a in self.attempts[-10:]
+            ],
+        }
+        text = json.dumps(payload, indent=2)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_var.set("Copied active parameters & KPI results (JSON) to clipboard.")
+
+    def import_validate_ai_params_dialog(self) -> None:
+        """Paste AI-modified JSON parameters, run safety validation, and apply to Active."""
+        win = tk.Toplevel(self.root)
+        win.title(self._t("menu_mcp_import"))
+        win.geometry("560x380")
+
+        ttk.Label(
+            win,
+            text='Paste AI JSON (e.g. {"P": 24.0, "FF1": 0.1005, "FF2": 0.00085}):',
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+
+        txt = tk.Text(win, height=10, font=("Consolas", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        sample = json.dumps(self._get_active_params_from_ui().to_dict(), indent=2)
+        txt.insert(tk.END, sample)
+
+        strict_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            win,
+            text="Enforce single-step safety jump limits (3x P/I, 5x D, 2.5x FF1)",
+            variable=strict_var,
+        ).pack(anchor="w", padx=10, pady=2)
+
+        def validate_and_apply() -> None:
+            raw = txt.get("1.0", tk.END).strip()
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and "params" in data and isinstance(data["params"], dict):
+                    data = data["params"]
+            except json.JSONDecodeError as exc:
+                messagebox.showerror("Invalid JSON", str(exc), parent=win)
+                return
+
+            current = self._get_active_params_from_ui()
+            res = validate_pid_params(
+                proposed=data,
+                current=current,
+                strict_step_limit=bool(strict_var.get()),
+            )
+            if not res.valid:
+                messagebox.showerror(
+                    "Validation Failed",
+                    "\n".join(res.errors),
+                    parent=win,
+                )
+                return
+
+            axis = self.axis_var.get().upper()
+            self._set_active_params_ui(res.validated_params)
+            self.backend.write_pid_params(axis, res.validated_params)
+            warn_txt = ("\n\nWarnings:\n" + "\n".join(res.warnings)) if res.warnings else ""
+            self.status_var.set(f"Validated and applied AI parameters to Axis {axis}.")
+            messagebox.showinfo(
+                "Validation Passed",
+                f"Applied {len(res.changes)} parameter change(s) to Axis {axis}.{warn_txt}",
+                parent=win,
+            )
+            win.destroy()
+
+        ttk.Button(win, text="Validate & Apply", command=validate_and_apply).pack(
+            pady=(4, 10)
+        )
 
 
 def launch_gui(force_sim: bool = False, default_lang: str = "fr") -> None:

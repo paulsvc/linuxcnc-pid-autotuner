@@ -243,6 +243,123 @@ BIAS = 0.0
         finally:
             root.destroy()
 
+    def test_validator_bounds_and_step_limits(self) -> None:
+        """Verify parameter validator rejects unsafe bounds, NaN, and large single-step jumps."""
+        from lcnc_pid_tuner.validator import validate_pid_params
+
+        current = PIDParams(P=12.0, I=0.0, D=0.0, FF1=0.08, FF2=0.0)
+
+        # 1. Negative P rejected
+        res_neg = validate_pid_params({"P": -5.0}, current=current)
+        self.assertFalse(res_neg.valid)
+        self.assertTrue(any("outside safe bounds" in e for e in res_neg.errors))
+
+        # 2. NaN rejected
+        res_nan = validate_pid_params({"FF1": float("nan")}, current=current)
+        self.assertFalse(res_nan.valid)
+
+        # 3. Excessive single-step jump (P: 12 -> 80 > 3x) rejected when strict_step_limit=True
+        res_jump = validate_pid_params({"P": 80.0}, current=current, strict_step_limit=True)
+        self.assertFalse(res_jump.valid)
+        self.assertTrue(any("Step jump too large" in e for e in res_jump.errors))
+
+        # 4. Safe update accepted with warning on non-zero FF0
+        res_ok = validate_pid_params(
+            {"Pgain": 20.0, "FF1": 0.10, "FF0": 0.05},
+            current=current,
+            strict_step_limit=True,
+        )
+        self.assertTrue(res_ok.valid)
+        self.assertAlmostEqual(res_ok.validated_params.P, 20.0)
+        self.assertAlmostEqual(res_ok.validated_params.FF1, 0.10)
+        self.assertTrue(any("FF0" in w for w in res_ok.warnings))
+        self.assertIn("P", res_ok.changes)
+
+    def test_mcp_server_stdio_roundtrip(self) -> None:
+        """Verify MCP JSON-RPC 2.0 initialize, tools/list, run_tuning_test, and validated AI apply."""
+        import io
+        import json
+        from lcnc_pid_tuner.mcp_server import PIDTunerMCPServer
+
+        requests = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "run_tuning_test", "arguments": {"axis": "X"}},
+            },
+            # Unsafe AI proposal (negative P) must be rejected
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "validate_and_apply_params",
+                    "arguments": {"axis": "X", "params": {"P": -10.0}},
+                },
+            },
+            # Safe AI proposal must be validated, applied, and re-tested
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {
+                    "name": "validate_and_apply_params",
+                    "arguments": {
+                        "axis": "X",
+                        "params": {"P": 22.0, "FF1": 0.10, "FF2": 0.00085},
+                        "apply": True,
+                        "run_test_after": True,
+                    },
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tools/call",
+                "params": {"name": "get_tuning_history", "arguments": {"axis": "X"}},
+            },
+        ]
+
+        in_buf = io.StringIO("\n".join(json.dumps(r) for r in requests) + "\n")
+        out_buf = io.StringIO()
+
+        server = PIDTunerMCPServer(force_sim=True)
+        server.run_stdio(in_stream=in_buf, out_stream=out_buf)
+
+        responses = [json.loads(line) for line in out_buf.getvalue().strip().splitlines()]
+        self.assertEqual(len(responses), 6)  # notification produces no response
+
+        # Check tools/list
+        tool_names = [t["name"] for t in responses[1]["result"]["tools"]]
+        self.assertIn("validate_and_apply_params", tool_names)
+
+        # Check run_tuning_test result
+        test_payload = json.loads(responses[2]["result"]["content"][0]["text"])
+        self.assertEqual(test_payload["attempt_id"], 1)
+        self.assertIn("kpis_um", test_payload)
+
+        # Check rejected unsafe AI params
+        bad_payload = json.loads(responses[3]["result"]["content"][0]["text"])
+        self.assertFalse(bad_payload["validation"]["valid"])
+        self.assertFalse(bad_payload["applied"])
+
+        # Check accepted AI params + immediate verification test
+        good_payload = json.loads(responses[4]["result"]["content"][0]["text"])
+        self.assertTrue(good_payload["validation"]["valid"])
+        self.assertTrue(good_payload["applied"])
+        self.assertIn("verification_test", good_payload)
+        self.assertLess(
+            good_payload["verification_test"]["kpis_um"]["ferror_rms_um"], 5.0
+        )
+
+        # Check history recorded both attempts
+        hist_payload = json.loads(responses[5]["result"]["content"][0]["text"])
+        self.assertEqual(hist_payload["count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
