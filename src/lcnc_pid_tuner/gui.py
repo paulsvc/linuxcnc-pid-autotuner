@@ -24,7 +24,7 @@ from .i18n import (
     translate_rationale_line,
     translate_stage_name,
 )
-from .kpi_analyzer import analyze_trace
+from .kpi_analyzer import analyze_trace, summarize_trace_for_ai
 from .models import (
     KPIResult,
     MotionConfig,
@@ -1525,6 +1525,11 @@ class PIDAutoTunerGUI:
             "active_params": active_params.to_dict(),
             "latest_kpis": (
                 self.current_attempt.kpis.to_dict()
+                if self.current_attempt is not None
+                else None
+            ),
+            "latest_trace_analysis": (
+                summarize_trace_for_ai(self.current_attempt.trace, max_points=120)
                 if self.current_attempt is not None
                 else None
             ),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .models import KPIResult, MotionPhase, PIDParams, SampleTrace
@@ -258,3 +259,102 @@ def analyze_trace(trace: SampleTrace, params: PIDParams) -> KPIResult:
     )
 
     return kpis
+
+
+def summarize_trace_for_ai(
+    trace: SampleTrace,
+    max_points: int = 120,
+    phase_filter: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Build a structured, AI-friendly summary of the raw oscilloscope trace:
+      - `phase_breakdown`: statistical summary per motion phase
+      - `trace_samples`: downsampled time-series (preserving local ferror peaks)
+        so the AI can inspect waveform shape, ringing, stiction, and saturation
+        in addition to aggregated KPIs.
+    """
+    if len(trace.phase) != len(trace.t):
+        segment_motion_phases(trace)
+
+    n = len(trace.t)
+    if n == 0:
+        return {"total_samples": 0, "duration_s": 0.0, "phase_breakdown": {}, "trace_samples": []}
+
+    dt = float(np.median(np.diff(trace.t))) if n > 1 else 0.001
+    sample_rate_hz = round(1.0 / max(1e-5, dt), 1)
+
+    # 1. Per-phase breakdown
+    phase_breakdown: Dict[str, Dict[str, Any]] = {}
+    for phase_id, phase_name in MotionPhase.NAMES.items():
+        idx = np.where(trace.phase == phase_id)[0]
+        if len(idx) == 0:
+            continue
+        fe_um = trace.ferror[idx] * 1000.0
+        out = trace.pid_output[idx]
+        phase_breakdown[phase_name] = {
+            "samples": int(len(idx)),
+            "duration_ms": round(len(idx) * dt * 1000.0, 1),
+            "ferror_mean_um": round(float(np.mean(fe_um)), 2),
+            "ferror_min_um": round(float(np.min(fe_um)), 2),
+            "ferror_max_um": round(float(np.max(fe_um)), 2),
+            "ferror_rms_um": round(float(np.sqrt(np.mean(fe_um**2))), 2),
+            "pid_output_mean": round(float(np.mean(out)), 3),
+            "pid_output_min": round(float(np.min(out)), 3),
+            "pid_output_max": round(float(np.max(out)), 3),
+        }
+
+    # 2. Optional phase filter
+    if phase_filter:
+        pf_lower = phase_filter.strip().lower()
+        matching_ids = [
+            pid for pid, pname in MotionPhase.NAMES.items() if pf_lower in pname.lower()
+        ]
+        if matching_ids:
+            mask = np.isin(trace.phase, matching_ids)
+            sel_indices = np.where(mask)[0]
+        else:
+            sel_indices = np.arange(n)
+    else:
+        sel_indices = np.arange(n)
+
+    # 3. Peak-preserving downsampling
+    if max_points > 0 and len(sel_indices) > max_points:
+        # Divide into buckets and pick both first and peak |ferror| in each bucket
+        buckets = np.array_split(sel_indices, max(1, max_points // 2))
+        picked: List[int] = []
+        for b in buckets:
+            if len(b) == 0:
+                continue
+            picked.append(int(b[0]))
+            peak_pos = int(b[int(np.argmax(np.abs(trace.ferror[b])))])
+            if peak_pos != int(b[0]):
+                picked.append(peak_pos)
+        if int(sel_indices[-1]) not in picked:
+            picked.append(int(sel_indices[-1]))
+        final_idx = sorted(set(picked))[:max_points]
+    else:
+        final_idx = sel_indices.tolist()
+
+    samples = [
+        {
+            "t_s": round(float(trace.t[i]), 4),
+            "phase": MotionPhase.NAMES.get(int(trace.phase[i]), "Unknown"),
+            "pos_cmd_mm": round(float(trace.pos_cmd[i]), 4),
+            "pos_fb_mm": round(float(trace.pos_fb[i]), 4),
+            "vel_cmd_mms": round(float(trace.vel_cmd[i]), 3),
+            "acc_cmd_mms2": round(float(trace.acc_cmd[i]), 2),
+            "ferror_um": round(float(trace.ferror[i] * 1000.0), 2),
+            "pid_output": round(float(trace.pid_output[i]), 4),
+            "saturated": bool(trace.saturated[i] > 0.5),
+        }
+        for i in final_idx
+    ]
+
+    return {
+        "total_samples": int(n),
+        "returned_samples": len(samples),
+        "duration_s": round(float(trace.t[-1] - trace.t[0]), 4) if n > 1 else 0.0,
+        "sample_rate_hz": sample_rate_hz,
+        "phase_breakdown": phase_breakdown,
+        "trace_samples": samples,
+    }

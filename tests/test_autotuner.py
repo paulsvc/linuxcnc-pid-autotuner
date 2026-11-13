@@ -322,6 +322,15 @@ BIAS = 0.0
                 "method": "tools/call",
                 "params": {"name": "get_tuning_history", "arguments": {"axis": "X"}},
             },
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_attempt_trace",
+                    "arguments": {"attempt_id": 1, "phase_filter": "Cruise", "max_points": 40},
+                },
+            },
         ]
 
         in_buf = io.StringIO("\n".join(json.dumps(r) for r in requests) + "\n")
@@ -331,16 +340,20 @@ BIAS = 0.0
         server.run_stdio(in_stream=in_buf, out_stream=out_buf)
 
         responses = [json.loads(line) for line in out_buf.getvalue().strip().splitlines()]
-        self.assertEqual(len(responses), 6)  # notification produces no response
+        self.assertEqual(len(responses), 7)  # notification produces no response
 
         # Check tools/list
         tool_names = [t["name"] for t in responses[1]["result"]["tools"]]
         self.assertIn("validate_and_apply_params", tool_names)
+        self.assertIn("get_attempt_trace", tool_names)
 
-        # Check run_tuning_test result
+        # Check run_tuning_test result includes BOTH KPIs and trace_analysis
         test_payload = json.loads(responses[2]["result"]["content"][0]["text"])
         self.assertEqual(test_payload["attempt_id"], 1)
         self.assertIn("kpis_um", test_payload)
+        self.assertIn("trace_analysis", test_payload)
+        self.assertIn("Cruise (+)", test_payload["trace_analysis"]["phase_breakdown"])
+        self.assertGreater(len(test_payload["trace_analysis"]["trace_samples"]), 20)
 
         # Check rejected unsafe AI params
         bad_payload = json.loads(responses[3]["result"]["content"][0]["text"])
@@ -359,6 +372,12 @@ BIAS = 0.0
         # Check history recorded both attempts
         hist_payload = json.loads(responses[5]["result"]["content"][0]["text"])
         self.assertEqual(hist_payload["count"], 2)
+
+        # Check get_attempt_trace phase filter
+        trace_payload = json.loads(responses[6]["result"]["content"][0]["text"])
+        samples = trace_payload["trace_analysis"]["trace_samples"]
+        self.assertGreater(len(samples), 0)
+        self.assertTrue(all("Cruise" in s["phase"] for s in samples))
 
 
 if __name__ == "__main__":

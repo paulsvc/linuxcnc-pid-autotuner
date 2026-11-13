@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from .gcode_gen import generate_tuning_gcode
 from .hal_backend import AXIS_TO_JOINT, LinuxCNCBackend
-from .kpi_analyzer import analyze_trace
+from .kpi_analyzer import analyze_trace, summarize_trace_for_ai
 from .models import MotionConfig, PIDParams, TuningAttempt
 from .optimizer import PIDAutoOptimizer
 from .validator import validate_pid_params
@@ -40,6 +40,7 @@ class PIDTunerMCPServer:
         self._tool_handlers: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
             "get_axis_params": self._tool_get_axis_params,
             "run_tuning_test": self._tool_run_tuning_test,
+            "get_attempt_trace": self._tool_get_attempt_trace,
             "validate_and_apply_params": self._tool_validate_and_apply_params,
             "get_tuning_history": self._tool_get_tuning_history,
             "save_params_to_ini": self._tool_save_params_to_ini,
@@ -108,6 +109,42 @@ class PIDTunerMCPServer:
                             "type": "number",
                             "default": 0.35,
                             "description": "Dwell duration in seconds at each end.",
+                        },
+                        "include_trace": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Include per-phase breakdown and peak-preserving oscilloscope trace samples alongside KPIs.",
+                        },
+                        "trace_max_points": {
+                            "type": "integer",
+                            "default": 120,
+                            "description": "Max downsampled oscilloscope trace points to return (0 = all samples).",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "get_attempt_trace",
+                "description": (
+                    "Inspect the raw recorded oscilloscope trace and per-phase breakdown for a "
+                    "previous attempt, optionally filtered to a specific motion phase (e.g. "
+                    "'Accel', 'Cruise', 'Decel', 'Settling', 'Standstill')."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "attempt_id": {
+                            "type": "integer",
+                            "description": "Attempt ID to inspect (defaults to latest attempt).",
+                        },
+                        "phase_filter": {
+                            "type": "string",
+                            "description": "Optional substring filter on phase name (e.g. 'Settling', 'Accel', 'Cruise').",
+                        },
+                        "max_points": {
+                            "type": "integer",
+                            "default": 200,
+                            "description": "Maximum number of trace points to return (0 = full 1 kHz resolution).",
                         },
                     },
                 },
@@ -274,7 +311,10 @@ class PIDTunerMCPServer:
         )
         self.attempts.append(attempt)
 
-        return {
+        include_trace = bool(args.get("include_trace", True))
+        trace_max_points = int(args.get("trace_max_points", 120))
+
+        result: Dict[str, Any] = {
             "attempt_id": attempt.attempt_id,
             "axis": axis,
             "mode": "live_linuxcnc" if self.backend.is_live_linuxcnc else "simulation",
@@ -294,6 +334,36 @@ class PIDTunerMCPServer:
                 "rationale": suggestion.rationale,
                 "warnings": suggestion.warnings,
             },
+        }
+        if include_trace:
+            result["trace_analysis"] = summarize_trace_for_ai(
+                trace, max_points=trace_max_points
+            )
+        return result
+
+    def _tool_get_attempt_trace(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.attempts:
+            return {"error": "no_attempts", "message": "No tuning attempts recorded yet."}
+        att_id = args.get("attempt_id")
+        if att_id is None:
+            target = self.attempts[-1]
+        else:
+            target_id = int(att_id)
+            matches = [a for a in self.attempts if a.attempt_id == target_id]
+            if not matches:
+                return {"error": "not_found", "message": f"Attempt #{target_id} not found."}
+            target = matches[0]
+
+        phase_filter = args.get("phase_filter")
+        max_points = int(args.get("max_points", 200))
+        return {
+            "attempt_id": target.attempt_id,
+            "axis": target.axis,
+            "params": target.params.to_dict(),
+            "kpis": target.kpis.to_dict(),
+            "trace_analysis": summarize_trace_for_ai(
+                target.trace, max_points=max_points, phase_filter=phase_filter
+            ),
         }
 
     def _tool_validate_and_apply_params(self, args: Dict[str, Any]) -> Dict[str, Any]:
